@@ -1,0 +1,37 @@
+#board{
+    margin-top:20px;
+    text-align:center;
+    border:black solid 2px;
+    display:inline-flex;
+}
+#info{ 
+    padding:12px;
+    font-size:18px;
+    margin:auto;
+    text-align:center;
+    transition:all 0.5s;
+    width:250px
+}
+#help{
+    border:black 2px dotted;
+    padding:10px;
+    float:center;
+    width:250px;
+    height:auto;
+    background:skyblue;
+    transition: all 0.5s;
+    margin:auto;
+    margin-top:10px;
+    text-align: center;
+}
+#debug{
+    border: black 2px dashed;
+    width:255px
+}
+#canvas{
+    height:auto;
+    margin-top:auto;
+    margin-right:auto;
+    margin-bottom:auto;
+    border:2px solid black;
+}
