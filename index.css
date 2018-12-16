@@ -25,7 +25,7 @@
     text-align: center;
 }
 #debug{
-    border: black 2px dashed;
+    border: red 2px dashed;
     width:255px
 }
 #canvas{
