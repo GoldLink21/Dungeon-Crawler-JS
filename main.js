@@ -8,11 +8,14 @@
  */
 
 /**Enum for directions */
-const dir={Up:'up',Down:'down',Left:'left',Right:'right'}
+const Dir={Up:'up',Down:'down',Left:'left',Right:'right'}
+
+/**Enum for difficulty */
+const Difficulty={Easy:'easy',Normal:'normal',Hard:'hard'}
 /**Holds presets for all types of tiles*/
 var T={
     SIZE:35,
-    Wall:{name:'wall',/**@default 'rgb(78,78,78)'*/color:'rgb(78,78,78)'},
+    Wall:{name:'wall',color:'rgb(78,78,78)'},
     Path:{name:'path',color:'rgb(165,165,165)'},
     Lava:{name:'lava',color:'maroon'},
     Lock:{name:'lock',color:'rgb(165,165,165)',hasImage:'lock.png'},
@@ -25,7 +28,9 @@ var T={
     //Don't use T.Trap or T.Portal because they will all sync up to the same thing as they will just become
     //References to the same object. Use the Trap function or portals function
     Trap:{name:'trap',dir:undefined,delay:undefined,color:'peru'},
-    Portal:{name:'portal',type:undefined,id:undefined,hasImage:'portalA.png',color:'rgb(165,165,165)'}
+    Portal:{name:'portal',type:undefined,id:undefined,hasImage:'portalA.png',color:'rgb(165,165,165)'},
+    //These are like locks, but only able to be opened with switches and stuff
+    Bars:{name:'bars',color:'rgb(165,165,165)',hasImage:'bars.png'}
 }
 /**
  * If just x and y are passed in, then returns board[y][x] which is (x,y)
@@ -65,8 +70,6 @@ var traps=[]
     /**Holds all the pickups on the map */
 var pickups=[]
 
-const testFloorNum=9001
-
 /**This holds general data about the game */
 var game={
     /**Tells if you have beaten the game */
@@ -75,7 +78,10 @@ var game={
     canMove:true,
     /**Holds total deaths */
     deaths:0,
+    curFloorDeaths:0,
     loops:0,
+    /**Determines many things, like respawn behavior and such */
+    difficulty:Difficulty.Easy
 }  
     /**Tells whether to use the set debug settings */
 var doDebug=true
@@ -87,9 +93,9 @@ var debug={
     /**Determines if a sidebar with extra info can be activated */
     showInfo:true,
     /**Tells if to change the first floor to the value of debug.firstFloor */
-    changeFirstFloor:false,
+    changeFirstFloor:true,
     /**The floor to change the first floor to */
-    firstFloor:12,
+    firstFloor:14,
     /**Infinite Keys */
     infKeys:false,
     /**Tells if you can hit / to load the next floor */
@@ -112,22 +118,23 @@ class Counter{
      * @param {number} max The max number of times the counter can count till it does onComplete
      * @param {function} onComplete The function to run once the counter is complete
      */
-    constructor(max,onComplete){
+    constructor(max,onComplete=()=>{}){
         if(max<=0)
             throw new RangeError('Max count must be positive and greater than 0')
         this._max=max
         this._cur=0
         this.onComplete=onComplete
     }
-    count(){
-        this._cur++;
-        if(this._cur>=this._max){
-            this.onComplete()
-            this._cur=0
-        }
+    count(n=1){
+        this.cur+=n
+        return this
     }
     reset(){
-        this._cur=0;
+        this.cur=0;
+        return this
+    }
+    toString(){
+        return this.cur+'/'+this.max
     }
     set cur(val){
         this._cur=val
@@ -149,7 +156,12 @@ class Counter{
     get max(){return this._max}
 }
 
-var _pickupOnRemoveAll=[]
+var _pickupOnRemoveAll=[],
+    _genericPickupType=0;
+function _nextPickupType(){
+    _genericPickupType++
+    return _genericPickupType.toString(16)
+}
 class Pickup{
     /**
      * @param {number} x Map based x coord
@@ -162,7 +174,7 @@ class Pickup{
      * @param {Function} onRemove The function to run when the object gets removed. Usually ()=>{counter=0}
      * @param {string} img The route to the img name for the pickup if available
      */
-    constructor(x,y,width=10,height=10,color='white',type='undefined',onGrab=()=>{},onRemove=()=>{},isCircle=false,img){
+    constructor(x,y,{width=10,height=10,color='white',type=_nextPickupType(),onGrab=()=>{},onRemove=()=>{},isCircle=false,img,addToArr=true,hidden=false}={}){
         this.x=(x*T.SIZE+T.SIZE/2-width/2)
         this.y=(y*T.SIZE+T.SIZE/2-height/2)
         this.width=width
@@ -170,14 +182,14 @@ class Pickup{
         this.color=color
         this.onGrab=onGrab
         this.type=type
-
         this.isCircle=isCircle
-
+        this.hidden=hidden
         Pickup._addRemoveFunc(type,onRemove)
         if(img)
             this.img=img
         this.toRemove=false
-        pickups.push(this)
+        if(addToArr)
+            pickups.push(this)
     }
     isPlayerCollide(){
         return!(((this.y+this.height)<(player.y))||
@@ -191,22 +203,24 @@ class Pickup{
     }
     /**@param {CanvasRenderingContext2D}ctx*/
     draw(ctx){
-        if(this.img){
-            var newImg=document.createElement('img')
-            newImg.src='gfx/'+this.img
-            ctx.drawImage(newImg,this.x,this.y,this.width,this.height)
-        }else{
-            if(this.isCircle){
-                ctx.beginPath();
-                ctx.fillStyle=this.color
-                ctx.ellipse(this.x+this.width/2,this.y+this.height/2,this.width/2,this.height/2,0,0,Math.PI*2)
-                ctx.fill()
-                ctx.stroke()
-                ctx.closePath()
+        if(!this.hidden){
+            if(this.img){
+                var newImg=document.createElement('img')
+                newImg.src='gfx/'+this.img
+                ctx.drawImage(newImg,this.x,this.y,this.width,this.height)
             }else{
-                ctx.fillStyle=this.color
-                ctx.fillRect(this.x,this.y,this.width,this.height)
-                ctx.strokeRect(this.x,this.y,this.width,this.height)
+                if(this.isCircle){
+                    ctx.beginPath();
+                    ctx.fillStyle=this.color
+                    ctx.ellipse(this.x+this.width/2,this.y+this.height/2,this.width/2,this.height/2,0,0,Math.PI*2)
+                    ctx.fill()
+                    ctx.stroke()
+                    ctx.closePath()
+                }else{
+                    ctx.fillStyle=this.color
+                    ctx.fillRect(this.x,this.y,this.width,this.height)
+                    ctx.strokeRect(this.x,this.y,this.width,this.height)
+                }
             }
         }
     }
@@ -220,6 +234,7 @@ class Pickup{
     static removeAll(){
         pickups=[]
         _pickupOnRemoveAll.forEach(func=>func.func())
+        _pickupOnRemoveAll=[]
     }
     static _addRemoveFunc(type,func){
         var obj={type:type,func:func},
@@ -236,9 +251,74 @@ class Pickup{
         }
     }
 }
+/**Gives the player a shield */
+function pShield(x,y){
+    return new Pickup(x,y,
+        {width:25,height:8,color:'saddleBrown',type:'shield',onGrab:()=>{player.hasShield=true},
+            onRemove:()=>{player.hasShield=false},isCircle:true})
+}
+/**Allows the player to block one hit. Ineffective with lava */
+function pArmor(x,y){
+    return new Pickup(x,y,
+        {width:25,height:25,color:'lightgrey',type:'armor',onGrab:()=>{player.armor++},
+            onRemove:()=>{player.armor=0},img:'armor.png'})
+}
 
-function ShieldPickup(x,y){
-    return new Pickup(x,y,25,8,'saddleBrown','test',function(){player.hasShield=true},function(){player.hasShield=false},true)
+class Switch extends Pickup{
+    /**
+     * Class for pickups that you can't actually pick up, but instead can be activated and deactivated to do stuff.
+     * They stay on the map after interactions which allows changing the map while playing
+     * @param {number} x Map x
+     * @param {number} y Map y
+     * @param {Function} onActivate Function used on activation
+     * @param {boolean} canDecativeate Tells if you can deactivate the switch for a different action
+     * @param {Function} onDeactivate Function used on deactivation if canDeactivate
+     * @param {string} inactiveColor The color before activation
+     * @param {string} activeColor The color after being activated
+     */
+    constructor(x,y,{onActivate=()=>{},canDecativeate=false,onDeactivate=()=>{},inactiveColor='blue',activeColor='darkblue',addToArr=true}={}){
+        super(x,y,{width:T.SIZE/2,height:T.SIZE/2,color:inactiveColor,type:'switch',onGrab:onActivate,onRemove:()=>{},isCircle:true,addToArr:addToArr})
+        this.hasActivated=false
+        this.canDecativeate=canDecativeate
+        this.onDeactivate=onDeactivate
+        this.inactiveColor=inactiveColor
+        this.activeColor=activeColor
+        this.hasUntouchedPlayer=true
+    }
+    checkPlayerCollide(){
+        var pc=this.isPlayerCollide()
+        //If collided, hasn't activated and you've stoped touching player
+        if(pc&&!this.hasActivated&&this.hasUntouchedPlayer){
+            this.color=this.activeColor
+            this.hasActivated=true
+            this.onGrab()
+            this.hasUntouchedPlayer=false
+        //If collided and activated and able to deactivate and you've stopped touching the player
+        }if(pc&&this.hasActivated&&this.canDecativeate&&this.hasUntouchedPlayer){
+            this.hasActivated=false
+            this.onDeactivate()
+            this.color=this.inactiveColor
+            this.hasUntouchedPlayer=false
+        //If not collided and you haven't stopped touching player
+        }if(!pc&&!this.hasUntouchedPlayer){
+            this.hasUntouchedPlayer=true
+        }
+    }
+}
+
+/**
+ * Sets a switch that toggles a tile between a path and whatever it was before. Don't use on traps
+ * @param {number} sx The x of the switch
+ * @param {number} sy The y of the switch
+ * @param {number} ox The x to toggle
+ * @param {number} oy The y to toggle
+ * @param {Function} onActivate Ran when activated
+ * @param {boolean} canToggle If you can deactivate
+ * @param {Function} onDeactivate Ran on deactivation
+ */
+function sToggleTile(sx,sy,ox,oy,onActivate=()=>{},canToggle,onDeactivate=()=>{}){
+    var oldType=b(ox,oy)
+    new Switch(sx,sy,{onActivate:()=>{b(ox,oy,T.Path);onActivate()},canDeactivate:canToggle,onDeactivate:()=>{b(ox,oy,oldType);onDeactivate()}})
 }
 
 /**Randomizes one array and shuffles the other in the same order */
@@ -307,18 +387,6 @@ function addElement(id,parent){
     return ele
 }
 
-
-/**
- * @param {HTMLElement} ele 
- * @param {string[]} prop 
- */
-function setStyles(ele,prop){
-    var sty=ele.style
-    prop.forEach(name=>{
-        sty[name.name]=name.prop
-    })
-}
-
 /**Creates all the HTML elements */
 function boardInit(){
     addElement('board',document.body)
@@ -353,7 +421,7 @@ function isCollide(a,b){return!(((a.y+a.height)<(b.y))||
     (a.y>(b.y+b.height))||((a.x+a.width)<b.x)||(a.x>(b.x+b.width)));}
 
 var player={
-    x:0,y:0,dir:dir.Up,
+    x:0,y:0,dir:Dir.Up,
     /**The player does not show when this is true */
     hidden:false,onLava:false,keys:0,
     /**Determines if the player can use their shield */
@@ -363,6 +431,8 @@ var player={
     /**The speed at which the player moves any direction */
     speed:5,
     width:16,height:16,color:'steelblue',
+    /**To be implemented. Protects from a single death */
+    armor:0,
     /**All the info pertaining to the portal teleportation */
     portal:{
         hasTele:false,id:-1,type:''
@@ -373,7 +443,16 @@ var player={
         /**counts the duration of being hurt */
         counter:new Counter(5,()=>{
             player.hurt.isHurt=false;
-        })
+        }),
+    },
+    /**Holds the colors for different states of the player */
+    colors:{
+        /**Standard color of the player */
+        default:'steelblue',
+        /**If the player is hurt */
+        hurt:'red',
+        /**When the player has armor */
+        armor:'grey'
     },
     /**Holds the directions that the player is trying to move */
     canMove:{
@@ -382,7 +461,7 @@ var player={
     /**Holds all info on the state of the player's shield blocking */
     block:{
         /**Counts the duration of the blocking */
-        counter:new Counter(8,()=>{
+        counter:new Counter(9,()=>{
             player.block.isBlock=false
             player.shield.active=false
         }),
@@ -393,7 +472,7 @@ var player={
         /**This is if you are currently attacking */
         isBlock:false,
         /**Direction of the shield */
-        dir:dir.Up,
+        dir:Dir.Up,
         /**This is if you can block, usually after the delay*/
         canBlock:true,
     },
@@ -413,22 +492,22 @@ var player={
         block(){
             //This part is setting the width and height based on direction
             switch(player.dir){
-                case dir.Up:case dir.Down:this.width=this.h;this.height=this.w;break;
-                case dir.Left:case dir.Right:this.width=this.w;this.height=this.h
+                case Dir.Up:case Dir.Down:this.width=this.h;this.height=this.w;break;
+                case Dir.Left:case Dir.Right:this.width=this.w;this.height=this.h
             }
             this.x=player.x+player.width/2-this.width/2
             this.y=player.y+player.height/2-this.height/2
             switch(player.dir){
-                case dir.Up:
+                case Dir.Up:
                     this.y-=this.shift
                     break;
-                case dir.Down:
+                case Dir.Down:
                     this.y+=this.shift
                     break;
-                case dir.Left:
+                case Dir.Left:
                     this.x-=this.shift
                     break;
-                case dir.Right:
+                case Dir.Right:
                     this.x+=this.shift
                     break;
             }
@@ -460,14 +539,14 @@ var player={
         if(dx===0^dy===0&&!player.block.isBlock){
             if(dx!==0){
                 switch(dx){
-                    case 1:player.dir=dir.Right;break;
-                    case -1:player.dir=dir.Left;break;
+                    case 1:player.dir=Dir.Right;break;
+                    case -1:player.dir=Dir.Left;break;
                 }
                 player.x+=dx*player.speed;
             }else{
                 switch(dy){
-                    case 1:player.dir=dir.Down;break;
-                    case -1:player.dir=dir.Up;break;
+                    case 1:player.dir=Dir.Down;break;
+                    case -1:player.dir=Dir.Up;break;
                 }
                 player.y+=dy*player.speed;
             }
@@ -480,6 +559,7 @@ var player={
         //Runs some checks for stuff
         checkOnPortal();
         updateInfo()
+        player.setColor()
         Pickup.checkAllCollide()
         if(debug.infKeys)
             player.keys=5;
@@ -513,13 +593,51 @@ var player={
         }
         return true
     },
+    setColor(){
+        if(player.hurt.isHurt){
+            if(player.color!==player.colors.hurt)
+                player.color=player.colors.hurt
+        }else if(player.armor>0){
+            if(player.color!==player.colors.armor)
+                player.color=player.colors.armor
+        }else if(player.gay){
+            var ctx=HTML.canvas.getContext('2d')
+            var grad=ctx.createLinearGradient(player.x,player.y,player.x+player.width,player.y)
+            var col=['red','orange','yellow','green','blue','violet']
+            var inc=1/(col.length-1)
+            for(let i=0;i<=1;i+=inc){
+                i=Math.round(i*10)/10
+                grad.addColorStop(i,col[i*5])
+            }
+            player.color=grad
+        }else{
+            if(player.color!==player.colors.default)
+                player.color=player.colors.default
+        }
+    },
     /**This is when the player dies, obviously*/
     kill(){
         player.hurt.isHurt=true
-        if(!debug.inv){
+        if(!debug.inv&&player.armor<=0){
+            
+            switch(game.difficulty){
+                case Difficulty.Easy:
+                    //Nothing Special
+                    break;
+                case Difficulty.Normal:
+                    loadFloor(curFloor)
+                    break;
+                case Difficulty.Hard:
+                    loadFloor(0)
+                    break;
+            }
             player.resetPosition()
+            game.curFloorDeaths++
             game.deaths++;
             player.shield.active=false
+
+        }if(player.armor>0){
+            player.armor--
         }
     }
 };
@@ -558,10 +676,10 @@ function checkTile(x,y){
     }else if(b(x,y)===T.Rock){
         var xCheck=x,yCheck=y;
         switch(player.dir){
-            case dir.Up:yCheck--;break;
-            case dir.Down:yCheck++;break;
-            case dir.Left:xCheck--;break;
-            case dir.Right:xCheck++;break;
+            case Dir.Up:yCheck--;break;
+            case Dir.Down:yCheck++;break;
+            case Dir.Left:xCheck--;break;
+            case Dir.Right:xCheck++;break;
         }
         if(checkRockTile(xCheck,yCheck)){
             if(b(xCheck,yCheck)===T.Lava){
@@ -666,13 +784,14 @@ function updateDebugInfo(){
     var str=''
 
     function debugSub(txt){str+='<br>'+txt}
-    debugSub('Player Hurt: '+player.hurt.counter.cur+'/'+player.hurt.counter.max+'  '+player.hurt.isHurt)
+    debugSub('Player Hurt: '+player.hurt.counter.toString()+'  '+player.hurt.isHurt)
     debugSub("Player Coords: ("+player.x+","+player.y+")")
     debugSub("Player dir: "+player.dir)
     debugSub("CurTile: "+b(roundPoint(player.x,player.y)[0],roundPoint(player.x,player.y)[1]).name)
     debugSub('player.portal.hasTele: '+player.portal.hasTele)
     debugSub('Player block: '+player.block.isBlock)
     debugSub('Player canBlock: '+player.block.canBlock)
+    debugSub('CurFloor Deaths: '+game.curFloorDeaths)
     if(HTML.debug.innerHTML!==str)
         HTML.debug.innerHTML=str
 }
@@ -683,7 +802,7 @@ function updateDebugInfo(){
  * @param {number} y The y coord of the key
  */
 function Key(x,y){
-    new Pickup(x,y,15,20,'goldenrod','key',()=>{player.keys++},()=>{player.keys=0},false,'key.png')
+    new Pickup(x,y,{width:15,height:20,color:'goldenrod',type:'key',onGrab:()=>{player.keys++},onRemove:()=>{player.keys=0},img:'key.png'})
 }
 
 /**
@@ -715,10 +834,10 @@ function Dart(x,y,direction){
             return true;
         },move(){
             switch(this.direction){
-                case(dir.Up):this.y-=this.speed;break;
-                case(dir.Down):this.y+=this.speed;break;
-                case(dir.Left):this.x-=this.speed;break;
-                case(dir.Right):this.x+=this.speed;break;
+                case(Dir.Up):this.y-=this.speed;break;
+                case(Dir.Down):this.y+=this.speed;break;
+                case(Dir.Left):this.x-=this.speed;break;
+                case(Dir.Right):this.x+=this.speed;break;
             }
             this.checkCollide();
         },checkTile(x,y){
@@ -733,7 +852,7 @@ function Dart(x,y,direction){
     })
 }
 
-/**Flags all darts to be removed */
+/**Flags all darts to be removed and stops all traps*/
 function removeDarts(){darts.forEach(d=>{d.toRemove=true});traps=[];}
 
 /**Moves all darts and removes any that need to be*/
@@ -914,26 +1033,10 @@ function drawAll(){
         ctx.stroke()
         ctx.closePath()
     }
-
-    //Player color
-    if(player.hurt.hurtCount>0||player.hurt.isHurt){
-        ctx.fillStyle='red'
-    }else if(player.gay){
-        var grad=ctx.createLinearGradient(player.x,player.y,player.x+player.width,player.y)
-        var col=['red','orange','yellow','green','blue','violet']
-        var inc=1/(col.length-1)
-        for(let i=0;i<=1;i+=inc){
-            i=Math.round(i*10)/10
-            grad.addColorStop(i,col[i*5])
-        }
-        ctx.fillStyle=grad;
-    }else
+    if(!player.hidden){
         ctx.fillStyle=player.color
-    
-    if(!player.hidden)
-        rect(player,true)
-    
-    if(player.hurt.isHurt)
+        rect(player)
+    }
         
 
     ctx.stroke();
@@ -949,6 +1052,7 @@ if(!doDebug){
     debug.showInfo=false
     debug.showPortalId=false
     debug.changeFirstFloor=false
+    debug.canShowCoords=false
 }
 
 boardInit();
