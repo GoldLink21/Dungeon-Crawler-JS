@@ -12,6 +12,16 @@ const Dir={Up:'up',Down:'down',Left:'left',Right:'right'}
 
 /**Enum for difficulty */
 const Difficulty={Easy:'easy',Normal:'normal',Hard:'hard'}
+
+/**Enum for menu */
+const Menu={
+    title:'title',
+    inGame:'inGame',
+    pause:'pause',
+}
+
+var menu=Menu.title
+
 /**Holds presets for all types of tiles*/
 var T={
     SIZE:35,
@@ -81,10 +91,18 @@ var game={
     curFloorDeaths:0,
     loops:0,
     /**Determines many things, like respawn behavior and such */
-    difficulty:Difficulty.Easy
+    difficulty:{
+        cur:Difficulty.Easy,
+        toEasy(){game.difficulty.cur=Difficulty.Easy},
+        toNormal(){game.difficulty.cur=Difficulty.Normal},
+        toHard(){game.difficulty.cur=Difficulty.Hard},
+        isEasy(){return game.difficulty.cur===Difficulty.Easy},
+        isNormal(){return game.difficulty.cur===Difficulty.Normal},
+        isHard(){return game.difficulty.cur===Difficulty.Hard}
+    }
 }  
     /**Tells whether to use the set debug settings */
-var doDebug=true
+var doDebug=false
 
 /**This holds all variables for debug testing */
 var debug={
@@ -95,7 +113,7 @@ var debug={
     /**Tells if to change the first floor to the value of debug.firstFloor */
     changeFirstFloor:true,
     /**The floor to change the first floor to */
-    firstFloor:14,
+    firstFloor:15,
     /**Infinite Keys */
     infKeys:false,
     /**Tells if you can hit / to load the next floor */
@@ -147,10 +165,7 @@ class Counter{
         if(val<=0)
             throw new RangeError('Max count must be poitive and greater than 0')
         this._max=val
-        while(this._cur>=this._max){
-            this._cur-=this._max
-            this.onComplete()
-        }
+        this.cur=this.cur
     }
     get cur(){return this._cur}
     get max(){return this._max}
@@ -158,6 +173,7 @@ class Counter{
 
 var _pickupOnRemoveAll=[],
     _genericPickupType=0;
+/**Gets a new type name for any generic pickups made without a type */
 function _nextPickupType(){
     _genericPickupType++
     return _genericPickupType.toString(16)
@@ -173,6 +189,7 @@ class Pickup{
      * @param {Function} onGrab The function to run when the obj is grabbed. Usually ()=>{counter++}
      * @param {Function} onRemove The function to run when the object gets removed. Usually ()=>{counter=0}
      * @param {string} img The route to the img name for the pickup if available
+     * @param {boolean} hidden Tells Whether to make the pickup hidden or not
      */
     constructor(x,y,{width=10,height=10,color='white',type=_nextPickupType(),onGrab=()=>{},onRemove=()=>{},isCircle=false,img,addToArr=true,hidden=false}={}){
         this.x=(x*T.SIZE+T.SIZE/2-width/2)
@@ -185,6 +202,7 @@ class Pickup{
         this.isCircle=isCircle
         this.hidden=hidden
         Pickup._addRemoveFunc(type,onRemove)
+        //Only set this.img if there is an img
         if(img)
             this.img=img
         this.toRemove=false
@@ -223,6 +241,23 @@ class Pickup{
                 }
             }
         }
+    }
+    flipLocation({vert=false,horiz=false}={}){
+        if(!vert&&!horiz)
+            return
+        //bw-trap.x-1
+        if(horiz)
+            this.x=board.length-this.x-1
+        if(vert)
+            this.y=board[0].length-this.y-1
+    }
+    static flipAll({vert=false,horiz=false}={}){
+        if(!vert&&!horiz)
+            return
+        var arg=arguments
+        pickups.forEach(pickup=>{
+            pickup.flipLocation(arg)
+        })
     }
     static checkAllCollide(){
         for(let i=0;i<pickups.length;i++){
@@ -276,10 +311,10 @@ class Switch extends Pickup{
      * @param {string} inactiveColor The color before activation
      * @param {string} activeColor The color after being activated
      */
-    constructor(x,y,{onActivate=()=>{},canDecativeate=false,onDeactivate=()=>{},inactiveColor='blue',activeColor='darkblue',addToArr=true}={}){
+    constructor(x,y,{onActivate=()=>{},canDeactivate=false,onDeactivate=()=>{},inactiveColor='blue',activeColor='darkblue',addToArr=true}={}){
         super(x,y,{width:T.SIZE/2,height:T.SIZE/2,color:inactiveColor,type:'switch',onGrab:onActivate,onRemove:()=>{},isCircle:true,addToArr:addToArr})
         this.hasActivated=false
-        this.canDecativeate=canDecativeate
+        this.canDeactivate=canDeactivate
         this.onDeactivate=onDeactivate
         this.inactiveColor=inactiveColor
         this.activeColor=activeColor
@@ -294,15 +329,14 @@ class Switch extends Pickup{
             this.onGrab()
             this.hasUntouchedPlayer=false
         //If collided and activated and able to deactivate and you've stopped touching the player
-        }if(pc&&this.hasActivated&&this.canDecativeate&&this.hasUntouchedPlayer){
+        }if(pc&&this.hasActivated&&this.canDeactivate&&this.hasUntouchedPlayer){
             this.hasActivated=false
             this.onDeactivate()
             this.color=this.inactiveColor
             this.hasUntouchedPlayer=false
         //If not collided and you haven't stopped touching player
-        }if(!pc&&!this.hasUntouchedPlayer){
+        }if(!pc&&!this.hasUntouchedPlayer)
             this.hasUntouchedPlayer=true
-        }
     }
 }
 
@@ -321,17 +355,21 @@ function sToggleTile(sx,sy,ox,oy,onActivate=()=>{},canToggle,onDeactivate=()=>{}
     new Switch(sx,sy,{onActivate:()=>{b(ox,oy,T.Path);onActivate()},canDeactivate:canToggle,onDeactivate:()=>{b(ox,oy,oldType);onDeactivate()}})
 }
 
+function sDart(sx,sy,dx,dy,dir){
+    new Switch(sx,sy,{activeColor:'peru',inactiveColor:'peru',onActivate:()=>{Dart(dx,dy,dir)},canDeactivate:true,onDeactivate:()=>{Dart(dx,dy,dir)}})
+}
+
 /**Randomizes one array and shuffles the other in the same order */
 function shuffleSimilar(arr1,arr2){
-    var i, temp, temp2, j, len = arr1.length;
-	for (i = 0; i < len; i++) {
-		j = ~~(Math.random() * len);
-        temp = arr1[i];
-        temp2 = arr2[i]
-        arr1[i] = arr1[j];
-        arr2[i] = arr2[j]
-        arr1[j] = temp;
-        arr2[j] = temp2
+    var i,temp,temp2,j,len=arr1.length;
+	for (i=0;i<len;i++){
+		j = ~~(Math.random()*len);
+        temp=arr1[i];
+        temp2=arr2[i]
+        arr1[i]=arr1[j];
+        arr2[i]=arr2[j]
+        arr1[j]=temp;
+        arr2[j]=temp2
 	}
 	return arr1;
 }
@@ -452,7 +490,9 @@ var player={
         /**If the player is hurt */
         hurt:'red',
         /**When the player has armor */
-        armor:'grey'
+        armor:'grey',
+        /**When the player is invincible */
+        inv:'goldenrod'
     },
     /**Holds the directions that the player is trying to move */
     canMove:{
@@ -486,8 +526,6 @@ var player={
         shift:11,
         /** This is if the shield is being used*/
         active:false,
-        /**Tells if you can use the shield based off delay*/
-        canSwing:true,
         /**Uses the shield */
         block(){
             //This part is setting the width and height based on direction
@@ -559,10 +597,14 @@ var player={
         //Runs some checks for stuff
         checkOnPortal();
         updateInfo()
-        player.setColor()
         Pickup.checkAllCollide()
+        //Pick the color only if you can see the player
+        if(!player.hidden)
+            player.setColor()
         if(debug.infKeys)
             player.keys=5;
+
+        addAndMoveDarts()
     },
     /**Sets the players position on the map tiles */
     setPosition(x,y){
@@ -593,8 +635,12 @@ var player={
         }
         return true
     },
+    /**Sets the player's color based on certain situations */
     setColor(){
-        if(player.hurt.isHurt){
+        if(debug.inv){
+            if(player.color!==player.colors.inv)
+                player.color=player.colors.inv
+        }else if(player.hurt.isHurt){
             if(player.color!==player.colors.hurt)
                 player.color=player.colors.hurt
         }else if(player.armor>0){
@@ -618,25 +664,24 @@ var player={
     /**This is when the player dies, obviously*/
     kill(){
         player.hurt.isHurt=true
+        //Not invincible and don't have armor
         if(!debug.inv&&player.armor<=0){
-            
-            switch(game.difficulty){
+            switch(game.difficulty.cur){
                 case Difficulty.Easy:
-                    //Nothing Special
+                    player.resetPosition()
+                    game.curFloorDeaths++
                     break;
                 case Difficulty.Normal:
                     loadFloor(curFloor)
+                    game.curFloorDeaths++
                     break;
                 case Difficulty.Hard:
                     loadFloor(0)
                     break;
             }
-            player.resetPosition()
-            game.curFloorDeaths++
             game.deaths++;
             player.shield.active=false
-
-        }if(player.armor>0){
+        }if(player.armor>0&&!debug.inv){
             player.armor--
         }
     }
@@ -780,21 +825,104 @@ function updateInfo(){
         updateDebugInfo()
 }
 
+/**Pass in a function that returns a string. Adds something to the side bar for debug */
+function debugStr(func){
+    _debugStrFunc.push(func)
+}
+
+var _debugStrFunc=[
+    ()=>{return 'Player Hurt: '+player.hurt.counter.toString()+'  '+player.hurt.isHurt},
+    ()=>{return "Player Coords: ("+player.x+","+player.y+")"},
+    ()=>{return "Player dir: "+player.dir},
+    ()=>{return "CurTile: "+b(roundPoint(player.x,player.y)[0],roundPoint(player.x,player.y)[1]).name},
+    ()=>{return 'player.portal.hasTele: '+player.portal.hasTele},
+    ()=>{return 'Player block: '+player.block.isBlock},
+    ()=>{return 'Player canBlock: '+player.block.canBlock},
+    ()=>{return 'CurFloor Deaths: '+game.curFloorDeaths}
+]
+
+/**This new system for debug info allows active altering of the debug window */
 function updateDebugInfo(){
     var str=''
-
-    function debugSub(txt){str+='<br>'+txt}
-    debugSub('Player Hurt: '+player.hurt.counter.toString()+'  '+player.hurt.isHurt)
-    debugSub("Player Coords: ("+player.x+","+player.y+")")
-    debugSub("Player dir: "+player.dir)
-    debugSub("CurTile: "+b(roundPoint(player.x,player.y)[0],roundPoint(player.x,player.y)[1]).name)
-    debugSub('player.portal.hasTele: '+player.portal.hasTele)
-    debugSub('Player block: '+player.block.isBlock)
-    debugSub('Player canBlock: '+player.block.canBlock)
-    debugSub('CurFloor Deaths: '+game.curFloorDeaths)
+    _debugStrFunc.forEach(func=>{str+='<br>'+func()})
     if(HTML.debug.innerHTML!==str)
         HTML.debug.innerHTML=str
 }
+
+/*    Incomplete and needs work
+function flipDarts(){
+	darts.forEach((dart)=>{
+		switch(dart.dir){
+            case Dir.Down:dart.dir=Dir.Up;break;
+            case Dir.Up:dart.dir=Dir.Down;break;
+            case Dir.Right:dart.dir=Dir.Left;break
+            case Dir.Left:dart.dir=Dir.Right;break
+        }
+	})
+}
+
+function flipTraps(){
+	traps.forEach((dart)=>{
+		switch(dart.dir){
+            case Dir.Down:dart.dir=Dir.Up;break;
+            case Dir.Up:dart.dir=Dir.Down;break;
+            case Dir.Right:dart.dir=Dir.Left;break
+            case Dir.Left:dart.dir=Dir.Right;break
+        }
+	})
+}
+
+function flipTrapLocation({vert=false,horiz=false}={}){
+    if(!vert&&!horiz)
+        return
+    var bw=board.length,bh=board[0].length
+    traps.forEach(trap=>{
+        if(horiz){
+            trap.x=bw-trap.x-1
+            if(trap.dir===Dir.Left)
+                trap.dir=Dir.Right
+            else if(trap.dir===Dir.Right)
+                trap.dir===Dir.Left
+        }if(vert){
+            trap.y=bh-trap.y-1
+            if(trap.dir===Dir.Up)
+                trap.dir=Dir.Down
+            else if(trap.dir===Dir.Down)
+                trap.dir=Dir.Up
+        }
+    })
+}
+
+function flipBoard({vert=false,horiz=false}={}){
+    if(!vert&&!horiz)
+        return
+    if(vert){
+        board.reverse()
+        board.forEach(row=>{
+            row.forEach(tile=>{
+                switch(tile.dir){
+                    case Dir.Down:tile.dir=Dir.Up;break;
+                    case Dir.Up:tile.dir=Dir.Down;break;
+                }
+            })
+        })
+    }if(horiz){
+        board.forEach(row=>{
+            row.reverse()
+            row.forEach(tile=>{
+                if(tile.name===T.Trap.name){
+                    switch(tile.dir){
+                        case Dir.Right:tile.dir=Dir.Left;break
+                        case Dir.Left:tile.dir=Dir.Right;break
+                    }
+                }
+            })
+        })
+    }
+    Pickup.flipAll()
+    flipTrapLocation(arguments[0])
+}
+*/
 
 /**
  * Adds a key at tile x and y for the floor. Do not use the new keyword
@@ -812,9 +940,9 @@ function Key(x,y){
 function addKeys(){Array.from(arguments).forEach(key=>{Key(key[0],key[1])})}
 
 /**Kind of a constructor, but done without the new keyword */
-function Dart(x,y,direction){
+function Dart(x,y,dir){
     darts.push({
-        width:10,height:10,direction:direction,
+        width:10,height:10,dir:dir,
         x:x*T.SIZE+(1/2)*T.SIZE-5,y:(y*T.SIZE+(1/2)*T.SIZE-5),
         speed:4,toRemove:false,hasTele:false,color:'green',
         checkCollide(){
@@ -833,7 +961,7 @@ function Dart(x,y,direction){
             }
             return true;
         },move(){
-            switch(this.direction){
+            switch(this.dir){
                 case(Dir.Up):this.y-=this.speed;break;
                 case(Dir.Down):this.y+=this.speed;break;
                 case(Dir.Left):this.x-=this.speed;break;
@@ -850,21 +978,23 @@ function Dart(x,y,direction){
             //Any that can't be shot through will return false here unless specified before
         }
     })
+    //Returns the dart that it added
+    return darts[darts.length-1]
 }
 
 /**Flags all darts to be removed and stops all traps*/
 function removeDarts(){darts.forEach(d=>{d.toRemove=true});traps=[];}
 
-/**Moves all darts and removes any that need to be*/
-function moveDarts(){
+/**Increments all traps delay to set when to fire */
+function addAndMoveDarts(){
+    traps.forEach(trap=>{
+        trap.fire()
+    })
     for(let i=0;i<darts.length;i++){
         darts[i].move();
         if(darts[i].toRemove) darts.splice(i--,1);
     }
 }
-
-/**Increments all traps delay to set when to fire */
-function addDarts(){traps.forEach(trap=>{trap.fire()})}
 
 function trapInit(){
     var i=0,j=0;
@@ -900,7 +1030,7 @@ function checkRockTile(x,y){
 
 document.addEventListener('keydown',(event)=>{
     eventHelper(event,true)
-    if(event.key===' '&&player.block.canBlock&&player.shield.canSwing&&player.hasShield){
+    if(event.key===' '&&player.block.canBlock&&player.hasShield){
         player.block.isBlock=true
         player.block.canBlock=false;
         player.shield.block()
@@ -908,10 +1038,13 @@ document.addEventListener('keydown',(event)=>{
 });
 document.addEventListener('keyup',(event)=>{
     eventHelper(event,false);
+    //Reload the current floor
     if(event.key==='r')
         loadFloor(curFloor);
+    //Go up a floor
     if(event.key==='/'&&debug.nextFloor)
         nextFloor()
+    //Go back a floor
     if(event.key==='.'&&debug.nextFloor)
         loadFloor((curFloor-1>=0)?curFloor-1:curFloor)
     if(event.key==="Enter")
@@ -921,7 +1054,6 @@ document.addEventListener('keyup',(event)=>{
             player.hidden=false
             game.loops++;
             game.deaths=0;
-            player.shield.canSwing=true;
         }
     if(event.key==='l'&&debug.doQuickLoad)
         loadFloor(debug.quickLoad)
@@ -1014,14 +1146,14 @@ function drawAll(){
         }) 
         by++
     })
-
+    pickups.forEach(pickup=>{
+            ctx.fillStyle=pickup.color
+            pickup.draw(ctx)
+    })
     darts.forEach(dart=>{
         ctx.fillStyle=dart.color
         circle(dart)
-    })
-    pickups.forEach(pickup=>{
-        ctx.fillStyle=pickup.color
-        pickup.draw(ctx)
+
     })
     //Draw the shield
     if(player.shield.active){
@@ -1038,7 +1170,6 @@ function drawAll(){
         rect(player)
     }
         
-
     ctx.stroke();
     circle(0,0,0)
 }
@@ -1055,8 +1186,17 @@ if(!doDebug){
     debug.canShowCoords=false
 }
 
+var move=false
+function setMovement(bool){
+    if(bool){
+        if(!move)
+            move=setInterval(player.move,60)
+    }else{
+        clearInterval(move)
+        move=false
+    }
+}
+
 boardInit();
-var playerMove=setInterval(player.move,60);
-var dartMove=setInterval(moveDarts,60);
-var shootDart=setInterval(addDarts,60)
+var move=setInterval(player.move,60);
 var draw=setInterval(drawAll,10)

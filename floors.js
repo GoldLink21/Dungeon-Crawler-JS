@@ -4,7 +4,7 @@ This is all the floors in game and some of the functions related to making floor
 
 ////////////////////////////////////////////////////
 //These are the helper functions
-
+const testFloorNum=9001
 /**
  * Loads a specific floor
  * @param {number} floor The floor to load 
@@ -13,12 +13,10 @@ function loadFloor(floor){
     game.curFloorDeaths=0
     removeDarts();
     Pickup.removeAll()
-    _pickupOnRemoveAll=[]
     curFloor=floor;
-    player.portal.hasTele=false;
     //First checks if the floor exists, then will load everything properly
     if(isFloor(floor)){
-        _nextPortalId=0;
+        _portalId=0;
         board=getFloor(floor);
         player.resetPosition()
         player.hidden=false;
@@ -35,45 +33,30 @@ function getFloor(n){
         curFloor=debug.firstFloor
         return getFloor(debug.firstFloor)
     }
-    switch(n){
-        case 0:return floorZero()
-        case 1:return f1()
-        case 2:return f2()
-        case 3:return f3()
-        case 4:return f4()
-        case 5:return f5()
-        case 6:return f6()
-        case 7:return f7()
-        case 8:return f8()
-        case 9:return f9()
-        case 10:return f10()
-        case 11:return f11()
-        case 12:return f12()
-        case 13:return f13()
-        case 14:return f14()
-        case 15:return f15()
-
-        case testFloorNum:return floorTest();
-        default:return false;
-    }
+    if(floorFunc[n])
+        return floorFunc[n]()
+    else return false
 }
-
+/**Put all functions for the floors in here with their index */
+var floorFunc={
+    0:f0,1:f1,2:f2,
+    3:f3,4:f4,5:f5,
+    6:f6,7:f7,8:f8,
+    9:f9,10:f10,11:f11,
+    12:f12,13:f13,14:f14,
+    //15:f15
+}
+floorFunc[testFloorNum]=floorTest
 
 /**Used to determine if a floor exists */
 function isFloor(n){
-    if(n>=0&&n<=15)
-        return true
-    if(n===testFloorNum)
-        return true
-
-    return false
+    return Boolean(floorFunc[n])
 }
 
 /**Loads the next floor */
 function nextFloor(){
     //loadFloor returns false if there is no floor to load of curFloor
     if(loadFloor(++curFloor)){
-        player.shield.canSwing=false;
         player.hidden=true;
         player.setPosition(0,0)
         board=setFloorAs(T.Path);
@@ -107,6 +90,21 @@ function border(arr,type){
         for(let j=0;j<arr[0].length;j++)
             if(j===0||j===arr[0].length-1||i===0||i===arr.length-1)
                 arr[i][j]=type
+}
+
+/**Takes the array and adds a border around the whole thing, extending it 
+ * @param {object[][]} arr*/
+function addBorder(arr,type){
+    for(let i=0;i<arr.length;i++){
+        arr[i].unshift(type)
+        arr[i].push(type)
+    }
+    var col=[]
+    //Plus two to factor in it moving the size up
+    for(let i=0;i<arr.length+2;i++)
+        col[i]=type
+    arr.unshift(col)
+    arr.push(col)
 }
 
 /**
@@ -162,7 +160,10 @@ function SaE(arr,start,end){
     arr[end[1]][end[0]]=T.End;
 }
 /**Always increment after pairing multiple portals */
-var _nextPortalId=0
+var _portalId=0
+function _nextPortalId(){
+    return ++_portalId
+}
 
 /**
  * This is used instead of T.Portal to make a new portal.
@@ -180,13 +181,13 @@ function Portal(type,id){
  * @param {number[]} p2 [x,y] of the second portal, i.e Portal B
  * @param {number} id The id of the portals to link them together 
  */
-function portals(arr,p1,p2,id=_nextPortalId++){
+function portals(arr,p1,p2,id=(_nextPortalId())){
     arr[p1[1]][p1[0]]=Portal('A',id);
     arr[p2[1]][p2[0]]=Portal('B',id);
 }
 
 /**This is used for making a new trap instead of T.Trap */
-function Trap(dirs=dir.Up,delay){
+function Trap(dirs=Dir.Up,delay){
     return{name:'trap',dir: dirs,delay:delay,color:'peru'
 }}
 
@@ -198,7 +199,7 @@ function OneWayPortal(x,y){
 ////////////////////////////////////////////////////
 //These are the floors
 //tiles are temp[y][x] (x,y) from top left starting at 0
-function floorZero(){
+function f0(){
     let temp=setFloorAs(T.Wall);
     tile(temp,[1,2,3],6);
     tile(temp,3,[4,5])
@@ -207,7 +208,7 @@ function floorZero(){
     tile(temp,[5,6,7],2);
     tile(temp,1,5,T.Wall);
     tile(temp,[2,4,4,6],[5,5,3,3],T.Lava);
-    tile(temp,[0,2,4],[6,4,2],Trap(dir.Right,55));
+    tile(temp,[0,2,4],[6,4,2],Trap(Dir.Right,55));
     SaE(temp,[1,7],[7,1]);
     setHelpInfo('Use arrow keys or wasd to move. Avoid the lava tiles and the darts. The goal is to get to the gold tile.');
     return temp;
@@ -220,9 +221,9 @@ function f1(){
     tile(temp,4,2);
     tile(temp,[3,5],1,T.Wall)
     tile(temp,[4,2,6,4,4],[7,6,6,1,6],T.Lava);
-    tile(temp,[8],[6],Trap(dir.Left,40));
-    tile(temp,0,6,Trap(dir.Right,40));
-    tile(temp,4,0,Trap(dir.Down,40));
+    tile(temp,[8],[6],Trap(Dir.Left,40));
+    tile(temp,0,6,Trap(Dir.Right,40));
+    tile(temp,4,0,Trap(Dir.Down,40));
     SaE(temp,[1,1],[7,1])
     setHelpInfo('Darts can fly over lava, which can lead to increased difficulty sometimes')
     return temp;
@@ -234,13 +235,13 @@ function f2(){
     tile(temp,4,[3,4,5,6,7]);
     tile(temp,6,1,T.Lock)
     tile(temp,[3,4,5],[3,1,3],T.Lava);
-    tile(temp,3,[4,6],Trap(dir.Right,25))
-    tile(temp,5,[4,6],Trap(dir.Left,25))
-    tile(temp,[2,6],0,Trap(dir.Down,25))
-    tile(temp,[2,6],2,Trap(dir.Up,25))
+    tile(temp,3,[4,6],Trap(Dir.Right,25))
+    tile(temp,5,[4,6],Trap(Dir.Left,25))
+    tile(temp,[2,6],0,Trap(Dir.Down,25))
+    tile(temp,[2,6],2,Trap(Dir.Up,25))
     addKeys([4,7]);
     SaE(temp,[1,1],[7,1]);
-    setHelpInfo("Grab the key to open the blue locked tile")
+    setHelpInfo("Grab the key to open the locked tile")
     return temp;
 }
 function f3(){
@@ -250,9 +251,9 @@ function f3(){
     tile(temp,[5,6,7],4,T.Lock);
     addKeys([4,1],[4,7],[1,4]);
     tile(temp,[5,5],[2,6],T.Lava);
-    tile(temp,[6,6],[2,6],Trap(dir.Left,45))
-    tile(temp,2,3,Trap(dir.Down,45))
-    tile(temp,2,5,Trap(dir.Up,45));
+    tile(temp,[6,6],[2,6],Trap(Dir.Left,45))
+    tile(temp,2,3,Trap(Dir.Down,45))
+    tile(temp,2,5,Trap(Dir.Up,45));
     SaE(temp,[4,4],[8,4])
     setHelpInfo()
     return temp;
@@ -274,9 +275,9 @@ function f4(){
         SaE(temp,[1,7],[7,1])
     }
     if(chance(1,2))
-        tile(temp,8,[2,4,6],Trap(dir.Left,40))
+        tile(temp,8,[2,4,6],Trap(Dir.Left,40))
     else
-        tile(temp,0,[2,4,6],Trap(dir.Right,40))
+        tile(temp,0,[2,4,6],Trap(Dir.Right,40))
     setHelpInfo()
     return temp;
 }
@@ -289,8 +290,8 @@ function f5(){
     tile(temp,7,[3,4,5,6])
     tile(temp,[4,7,1],[1,7,7],T.Lava)
     tile(temp,[2,5,3,8,2],[4,5,3,4,2])
-    tile(temp,[1,7],[8,8],Trap(dir.Up,57));
-    tile(temp,4,0,Trap(dir.Down,57))
+    tile(temp,[1,7],[8,8],Trap(Dir.Up,57));
+    tile(temp,4,0,Trap(Dir.Down,57))
     SaE(temp,[0,1],[8,6]);
     setHelpInfo();
     return temp;
@@ -303,8 +304,8 @@ function f6(){
         tile(temp,i,4)
     }
     tile(temp,11,[1,2,3],T.Hidden);
-    tile(temp,[1,3,5,7,9],3,Trap(dir.Down,80))
-    tile(temp,[2,4,6,8,10],5,Trap(dir.Up,40));
+    tile(temp,[1,3,5,7,9],3,Trap(Dir.Down,80))
+    tile(temp,[2,4,6,8,10],5,Trap(Dir.Up,40));
     SaE(temp,[0,1],[11,4]);
     setHelpInfo("The darts are pretty small. Maybe you can use that to your advantage")
     return temp;
@@ -319,10 +320,10 @@ function f7(){
     else
         for(let i=1;i<8;i++)for(let j=1;j<8;j++)addKeys([i,j])
 
-    tile(temp,0,[2,3,4,5,6],Trap(dir.Right,35));
-    tile(temp,8,[2,3,4,5,6],Trap(dir.Left,35));
-    tile(temp,[2,3,4,5,6],0,Trap(dir.Down,35));
-    tile(temp,[2,3,4,5,6],8,Trap(dir.Up,35));
+    tile(temp,0,[2,3,4,5,6],Trap(Dir.Right,35));
+    tile(temp,8,[2,3,4,5,6],Trap(Dir.Left,35));
+    tile(temp,[2,3,4,5,6],0,Trap(Dir.Down,35));
+    tile(temp,[2,3,4,5,6],8,Trap(Dir.Up,35));
     SaE(temp,[7,7],[1,1])
     setHelpInfo("You can also hit r to restart the current floor")
     return temp;
@@ -334,7 +335,7 @@ function f8(){
     tile(temp,1,[2,4,5,6,7])
     tile(temp,[2,3,4,5],7)
     tile(temp,3,[1,2,3,4,5,6])
-    tile(temp,3,0,Trap(dir.Down,55))
+    tile(temp,3,0,Trap(Dir.Down,55))
     tile(temp,[5,6,7],2)
     tile(temp,[1,7],[6,2],T.Lava)
     tile(temp,7,[3,4,5,6])
@@ -352,8 +353,8 @@ function f9(){
     
     for(let i=2;i<7;i+=2)
         tile(temp,i,[1,2,3,4,5,6,7],T.Wall)
-    tile(temp,0,4,Trap(dir.Right,35))
-    tile(temp,8,4,Trap(dir.Left,35))
+    tile(temp,0,4,Trap(Dir.Right,35))
+    tile(temp,8,4,Trap(Dir.Left,35))
     tile(temp,[2,4,6],4,T.Lava)
     SaE(temp,[7,7],[1,1])
     setHelpInfo('I wonder what those new tiles are?')
@@ -366,7 +367,7 @@ function f10(){
         tile(temp,i+1,(p++%2),T.Lava)
     for(let i=0;i<temp[0].length;i++){
         if(i%4===2)
-            tile(temp,i+1,2,Trap(dir.Up,55))
+            tile(temp,i+1,2,Trap(Dir.Up,55))
         else
             tile(temp,i+1,2,T.Wall)
     }
@@ -381,9 +382,9 @@ function f11(){
     tile(temp,6,[8,7,6],T.Lava)
     tile(temp,5,[9,8,7],T.Wall)
     tile(temp,4,[8,7],T.NoPushRock)
-    tile(temp,5,0,Trap(dir.Down,55))
-    tile(temp,3,9,Trap(dir.Up,55))
-    tile(temp,0,5,Trap(dir.Right,55))
+    tile(temp,5,0,Trap(Dir.Down,55))
+    tile(temp,3,9,Trap(Dir.Up,55))
+    tile(temp,0,5,Trap(Dir.Right,55))
     tile(temp,[3,5,1],[8,1,5],T.Rock)
     SaE(temp,[0,0],[6,9])
     setHelpInfo("I think this level rocks")
@@ -406,9 +407,9 @@ function f12(){
     ///////////////////////////////////////////
     //Randomization of possible spawns
     var mustStart=[1,0],
-        mustEnd=[10,8]
-    var startLoc=[[5,0],[3,5],[1,6],[10,6],[8,2],[7,6],[5,8]]
-    var endLoc=[[0,3],[3,3],[3,0],[8,10],[0,10],[6,4],[9,2]];
+        mustEnd=[10,8],
+        startLoc=[[5,0],[3,5],[1,6],[10,6],[8,2],[7,6],[5,8]],
+        endLoc=[[0,3],[3,3],[3,0],[8,10],[0,10],[6,4],[9,2]];
 
     shuffleSimilar(startLoc,endLoc)
 
@@ -433,8 +434,8 @@ function f13(){
     tile(temp,1,[2,3,4,5,6,7,8])
     tile(temp,3,[2,3,4,5,6,7,8])
 
-    tile(temp,1,9,Trap(dir.UP,35))
-    tile(temp,3,1,Trap(dir.Down,35))
+    tile(temp,1,9,Trap(Dir.UP,35))
+    tile(temp,3,1,Trap(Dir.Down,35))
 
     pShield(0,2)
     setHelpInfo("Take your shield in hand and use it with space to block those pesky darts")
@@ -449,7 +450,7 @@ function f14(){
     tile(temp,[1,2,3,4,6,7,8,9],9)
     tile(temp,[6,4,4,5,4],[5,1,5,6,9],T.Bars);
     for(let i=2;i<temp.length;i+=4)
-        tile(temp,[2,3,4,6,7,8],i,Trap(dir.Up,28-i))
+        tile(temp,[2,3,4,6,7,8],i,Trap(Dir.Up,28-i))
 
     new Switch(9,1,{onActivate:()=>{
         b(5,6,T.Path)
@@ -472,7 +473,8 @@ function f14(){
 function f15(){
     var temp=setFloorAs(T.Path)
     border(temp,T.Bars)
-
+    SaE(temp,[2,2],[6,6])
+    tile(temp,3,1,Trap(Dir.Down,15))
     return temp
 }
 
@@ -492,7 +494,7 @@ function floorTest(){
     tile(temp,[3,4,5],3,T.NoPushRock)
     tile(temp,[4,5],4,T.Rock)
     tile(temp,5,0,T.Wall)
-    tile(temp,6,0,Trap(dir.Down,100))
+    tile(temp,6,0,Trap(Dir.Down,100))
     portals(temp,[1,0],[temp[0].length-1,temp.length-2],1)
     portals(temp,[1,1],[1,2],3)
     addKeys([0,8])    
