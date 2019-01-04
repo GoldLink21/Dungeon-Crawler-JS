@@ -42,6 +42,26 @@ var T={
     //These are like locks, but only able to be opened with switches and stuff
     Bars:{name:'bars',color:'rgb(165,165,165)',hasImage:'bars.png'}
 }
+
+//Add functions to all objects
+for(type in T){
+    //is function
+    T[type]['is']=function(...others){
+        for(let i=0;i<others.length;i++){
+            if(this.name===others[i].name)
+                return true
+        }
+        return false
+    }
+    T[type]['setTo']=function(other){
+        for(prop in this)
+            delete this[prop]
+        for(prop in other)
+            this[prop]=other[prop]    
+    }
+}
+
+
 /**
  * If just x and y are passed in, then returns board[y][x] which is (x,y)
  * If type is passed in, sets board[y][x] (x,y) to the type passed in
@@ -59,12 +79,9 @@ function b(x,y,type){
  * @argument args in as many types of tiles, i.e. T.Start, T.End etc. after b(x,y)
  * @example boardIs(b(x,y),T.End,T.Start) //returns true if board[y][x] (x,y) is any of the types passed in
  */
-function boardIs(byx,args){
-    var b=arguments[0]
-    var arr=Array.from(arguments)
-    arr.splice(0,1)
-    for(let i=0;i<arr.length;i++)
-        if(b.name===arr[i].name)
+function boardIs(bxy,...args){
+    for(let i=0;i<args.length;i++)
+        if(bxy.name===args[i].name)
             return true;
     return false;
 }
@@ -89,7 +106,7 @@ var game={
     /**Holds total deaths */
     deaths:0,
     curFloorDeaths:0,
-    loops:0,
+    loops:localStorage['gameLoops']||0,
     /**Determines many things, like respawn behavior and such */
     difficulty:{
         cur:Difficulty.Easy,
@@ -99,8 +116,11 @@ var game={
         isEasy(){return game.difficulty.cur===Difficulty.Easy},
         isNormal(){return game.difficulty.cur===Difficulty.Normal},
         isHard(){return game.difficulty.cur===Difficulty.Hard}
-    }
+    },
+    doCountTimer:true,
+    lowTime:localStorage['lowTime']||9999
 }  
+
     /**Tells whether to use the set debug settings */
 var doDebug=false
 
@@ -113,7 +133,7 @@ var debug={
     /**Tells if to change the first floor to the value of debug.firstFloor */
     changeFirstFloor:true,
     /**The floor to change the first floor to */
-    firstFloor:15,
+    firstFloor:14,
     /**Infinite Keys */
     infKeys:false,
     /**Tells if you can hit / to load the next floor */
@@ -128,164 +148,12 @@ var debug={
     showCoords:true,
     /**Determines if clicking c shows the coords */
     canShowCoords:true,
+    /**Can click on a tile to teleport to it */
+    clickTele:true,
 }
 
-class Counter{
-    /**
-     * A class for counting times a thing happens and running a function after that
-     * @param {number} max The max number of times the counter can count till it does onComplete
-     * @param {function} onComplete The function to run once the counter is complete
-     */
-    constructor(max,onComplete=()=>{}){
-        if(max<=0)
-            throw new RangeError('Max count must be positive and greater than 0')
-        this._max=max
-        this._cur=0
-        this.onComplete=onComplete
-    }
-    count(n=1){
-        this.cur+=n
-        return this
-    }
-    reset(){
-        this.cur=0;
-        return this
-    }
-    toString(){
-        return this.cur+'/'+this.max
-    }
-    set cur(val){
-        this._cur=val
-        while(this._cur>=this._max){
-            this._cur-=this._max
-            this.onComplete()
-        }
-    }
-    set max(val){
-        if(val<=0)
-            throw new RangeError('Max count must be poitive and greater than 0')
-        this._max=val
-        this.cur=this.cur
-    }
-    get cur(){return this._cur}
-    get max(){return this._max}
-}
 
-var _pickupOnRemoveAll=[],
-    _genericPickupType=0;
-/**Gets a new type name for any generic pickups made without a type */
-function _nextPickupType(){
-    _genericPickupType++
-    return _genericPickupType.toString(16)
-}
-class Pickup{
-    /**
-     * @param {number} x Map based x coord
-     * @param {number} y Map based y coord
-     * @param {number} height Height of the object
-     * @param {number} width Width of the object
-     * @param {string} color Color to draw the object as
-     * @param {string} type The name of the type of object
-     * @param {Function} onGrab The function to run when the obj is grabbed. Usually ()=>{counter++}
-     * @param {Function} onRemove The function to run when the object gets removed. Usually ()=>{counter=0}
-     * @param {string} img The route to the img name for the pickup if available
-     * @param {boolean} hidden Tells Whether to make the pickup hidden or not
-     */
-    constructor(x,y,{width=10,height=10,color='white',type=_nextPickupType(),onGrab=()=>{},onRemove=()=>{},isCircle=false,img,addToArr=true,hidden=false}={}){
-        this.x=(x*T.SIZE+T.SIZE/2-width/2)
-        this.y=(y*T.SIZE+T.SIZE/2-height/2)
-        this.width=width
-        this.height=height
-        this.color=color
-        this.onGrab=onGrab
-        this.type=type
-        this.isCircle=isCircle
-        this.hidden=hidden
-        Pickup._addRemoveFunc(type,onRemove)
-        //Only set this.img if there is an img
-        if(img)
-            this.img=img
-        this.toRemove=false
-        if(addToArr)
-            pickups.push(this)
-    }
-    isPlayerCollide(){
-        return!(((this.y+this.height)<(player.y))||
-            (this.y>(player.y+player.height))||((this.x+this.width)<player.x)||(this.x>(player.x+player.width)));
-    }
-    checkPlayerCollide(){
-        if(this.isPlayerCollide()){
-            this.toRemove=true;
-            this.onGrab();
-        }
-    }
-    /**@param {CanvasRenderingContext2D}ctx*/
-    draw(ctx){
-        if(!this.hidden){
-            if(this.img){
-                var newImg=document.createElement('img')
-                newImg.src='gfx/'+this.img
-                ctx.drawImage(newImg,this.x,this.y,this.width,this.height)
-            }else{
-                if(this.isCircle){
-                    ctx.beginPath();
-                    ctx.fillStyle=this.color
-                    ctx.ellipse(this.x+this.width/2,this.y+this.height/2,this.width/2,this.height/2,0,0,Math.PI*2)
-                    ctx.fill()
-                    ctx.stroke()
-                    ctx.closePath()
-                }else{
-                    ctx.fillStyle=this.color
-                    ctx.fillRect(this.x,this.y,this.width,this.height)
-                    ctx.strokeRect(this.x,this.y,this.width,this.height)
-                }
-            }
-        }
-    }
-    flipLocation({vert=false,horiz=false}={}){
-        if(!vert&&!horiz)
-            return
-        //bw-trap.x-1
-        if(horiz)
-            this.x=board.length-this.x-1
-        if(vert)
-            this.y=board[0].length-this.y-1
-    }
-    static flipAll({vert=false,horiz=false}={}){
-        if(!vert&&!horiz)
-            return
-        var arg=arguments
-        pickups.forEach(pickup=>{
-            pickup.flipLocation(arg)
-        })
-    }
-    static checkAllCollide(){
-        for(let i=0;i<pickups.length;i++){
-            pickups[i].checkPlayerCollide()
-            if(pickups[i].toRemove)
-                pickups.splice(i--,1)
-        }
-    }
-    static removeAll(){
-        pickups=[]
-        _pickupOnRemoveAll.forEach(func=>func.func())
-        _pickupOnRemoveAll=[]
-    }
-    static _addRemoveFunc(type,func){
-        var obj={type:type,func:func},
-            toAdd=true
-        for(let i=0;i<_pickupOnRemoveAll.length;i++){
-            var other=_pickupOnRemoveAll[i]
-            if(other.type===obj.type){
-                toAdd=false
-                break
-            }
-        }
-        if(toAdd){
-            _pickupOnRemoveAll.push(obj)
-        }
-    }
-}
+
 /**Gives the player a shield */
 function pShield(x,y){
     return new Pickup(x,y,
@@ -297,47 +165,6 @@ function pArmor(x,y){
     return new Pickup(x,y,
         {width:25,height:25,color:'lightgrey',type:'armor',onGrab:()=>{player.armor++},
             onRemove:()=>{player.armor=0},img:'armor.png'})
-}
-
-class Switch extends Pickup{
-    /**
-     * Class for pickups that you can't actually pick up, but instead can be activated and deactivated to do stuff.
-     * They stay on the map after interactions which allows changing the map while playing
-     * @param {number} x Map x
-     * @param {number} y Map y
-     * @param {Function} onActivate Function used on activation
-     * @param {boolean} canDecativeate Tells if you can deactivate the switch for a different action
-     * @param {Function} onDeactivate Function used on deactivation if canDeactivate
-     * @param {string} inactiveColor The color before activation
-     * @param {string} activeColor The color after being activated
-     */
-    constructor(x,y,{onActivate=()=>{},canDeactivate=false,onDeactivate=()=>{},inactiveColor='blue',activeColor='darkblue',addToArr=true}={}){
-        super(x,y,{width:T.SIZE/2,height:T.SIZE/2,color:inactiveColor,type:'switch',onGrab:onActivate,onRemove:()=>{},isCircle:true,addToArr:addToArr})
-        this.hasActivated=false
-        this.canDeactivate=canDeactivate
-        this.onDeactivate=onDeactivate
-        this.inactiveColor=inactiveColor
-        this.activeColor=activeColor
-        this.hasUntouchedPlayer=true
-    }
-    checkPlayerCollide(){
-        var pc=this.isPlayerCollide()
-        //If collided, hasn't activated and you've stoped touching player
-        if(pc&&!this.hasActivated&&this.hasUntouchedPlayer){
-            this.color=this.activeColor
-            this.hasActivated=true
-            this.onGrab()
-            this.hasUntouchedPlayer=false
-        //If collided and activated and able to deactivate and you've stopped touching the player
-        }if(pc&&this.hasActivated&&this.canDeactivate&&this.hasUntouchedPlayer){
-            this.hasActivated=false
-            this.onDeactivate()
-            this.color=this.inactiveColor
-            this.hasUntouchedPlayer=false
-        //If not collided and you haven't stopped touching player
-        }if(!pc&&!this.hasUntouchedPlayer)
-            this.hasUntouchedPlayer=true
-    }
 }
 
 /**
@@ -446,8 +273,16 @@ function boardInit(){
     if(debug.showInfo)
         addElement('debug',HTML.board)
 
+    if(debug.clickTele){
+        canvas.addEventListener('click',(event)=>{
+            var rp=roundPoint(event.x-canvas.offsetLeft,event.y-canvas.offsetTop)
+            player.setPosition(rp[0],rp[1])
+        })
+    }
+
     updateInfo()
-    loadFloor(0);
+    loadFloor(curFloor-1);
+    nextFloor()
 }
 
 /**
@@ -687,6 +522,8 @@ var player={
     }
 };
 
+
+
 /**
  * @returns true if the player can move there and false if they cannot. Also does all functions of
  * events when the player walks on specific tiles
@@ -698,27 +535,28 @@ function checkTile(x,y){
     if(x<0||y<0||x>board[0].length-1||y>board.length-1)
         return false;
     //These are the tiles that you can walk on with nothing happening
-    if(boardIs(b(x,y),T.Path,T.Start,T.Hidden,T.NoPushRock))
+    var cur=b(x,y)
+    if(cur.is(T.Path,T.Start,T.Hidden,T.NoPushRock))
         return true;
     else if(b(x,y)===T.End)
         nextFloor();
-    else if(boardIs(b(x,y),T.Wall,T.Trap))
+    else if(cur.is(T.Wall,T.Trap,T.Bars))
         return false
     //Keys and locks
-    else if(b(x,y)===T.Lock){
+    else if(cur.is(T.Lock)){
         if(player.keys>0){
             player.keys--;
             b(x,y,T.Path)
-            return true;
+            return false;
         }else return false
     //Lava
-    }else if(b(x,y)===T.Lava){
+    }else if(cur.is(T.Lava)){
         if(!player.onLava){
             player.kill()
             return (player.onLava=true);
         }
     //Rocks
-    }else if(b(x,y)===T.Rock){
+    }else if(cur.is(T.Rock)){
         var xCheck=x,yCheck=y;
         switch(player.dir){
             case Dir.Up:yCheck--;break;
@@ -737,17 +575,17 @@ function checkTile(x,y){
             return false;
         }
     //Portals
-    }else if(b(x,y).name===T.Portal.name){
-        if(!player.portal.hasTele||b(x,y).id!==player.portal.id||b(x,y).type!==player.portal.type){
-            if(b(x,y).type==='C'){
+    }else if(cur.name===T.Portal.name){
+        if(!player.portal.hasTele||cur.id!==player.portal.id||cur.type!==player.portal.type){
+            if(cur.type==='C'){
                 player.portal.type='C'
                 player.portal.id=-1;
-                player.setPosition(b(x,y).x,b(x,y).y)
+                player.setPosition(cur.x,cur.y)
             }
-            player.portal.id=b(x,y).id
+            player.portal.id=cur.id
             
             player.portal.hasTele=true;
-            var point=getOtherPortal(b(x,y))
+            var point=getOtherPortal(cur)
             if(point){
                 player.portal.type=b(point[0],point[1]).type
                 player.setPosition(point[0],point[1])
@@ -786,21 +624,6 @@ function checkOnPortal(){
 }
 
 /**
- * @returns {number[]}an array of the values (start,end]
- * @param {number} start The start number of the array
- * @param {number} end The end number of the array, non-inclusive
- */
-function rndNoRepeat(start,end){
-    var range=(end-start),nums=new Array(range),i=0,temp;
-    while(i<range){
-        do temp=Math.floor(Math.random()*(range))+start
-        while(nums.includes(temp));
-        nums[i++]=temp;
-    }
-    return nums;
-}
-
-/**
  * @returns an array of the rounded points of each corner of the object 
  * @requires obj to have width and height property
  */
@@ -812,12 +635,26 @@ function getRounded(obj){
 /**@returns the tile coord of the point */
 function roundPoint(x,y){return[Math.floor(x/T.SIZE),Math.floor(y/T.SIZE)];}
 
+var startTime=Date.now(),
+    curTime=Date.now(),
+    timeDuration=0
+
 /**Updates the info on the info HTML */
 function updateInfo(){
     var ele = document.getElementById('info');
     var str="Floor: "+curFloor+",  Keys: "+player.keys+",  Deaths: "+game.deaths;
     if(game.loops>0)
         str+=',  Game Loops: '+game.loops;
+
+    //Holds the counting feature
+    str+='<br>Time: '
+    if(game.doCountTimer){
+        curTime=Date.now()
+        timeDuration=(curTime-startTime)/1000
+    }
+
+    str+=timeDuration+' Sec.<br>Fastest Time: '
+    str+=game.lowTime+' Sec.'
     //Only do it if there's something new to change
     if(ele.innerHTML!==str)
         ele.innerHTML=str;
@@ -831,16 +668,17 @@ function debugStr(func){
 }
 
 var _debugStrFunc=[
-    ()=>{return 'Player Hurt: '+player.hurt.counter.toString()+'  '+player.hurt.isHurt},
-    ()=>{return "Player Coords: ("+player.x+","+player.y+")"},
-    ()=>{return "Player dir: "+player.dir},
-    ()=>{return "CurTile: "+b(roundPoint(player.x,player.y)[0],roundPoint(player.x,player.y)[1]).name},
-    ()=>{return 'player.portal.hasTele: '+player.portal.hasTele},
-    ()=>{return 'Player block: '+player.block.isBlock},
-    ()=>{return 'Player canBlock: '+player.block.canBlock},
-    ()=>{return 'CurFloor Deaths: '+game.curFloorDeaths}
+    ()=>{return `Player Hurt: ${player.hurt.counter.toString()}  ${player.hurt.isHurt}`},
+    ()=>{return `Player Coords: ${player.x} ${player.y}}`},
+    ()=>{return `Player dir: ${player.dir}`},
+    ()=>{return `CurTile: ${b(roundPoint(player.x,player.y)[0],roundPoint(player.x,player.y)[1]).name}`},
+    ()=>{return `player.portal.hasTele: ${player.portal.hasTele}`},
+    ()=>{return `Player block: ${player.block.isBlock}`},
+    ()=>{return `Player canBlock: ${player.block.canBlock}`},
+    ()=>{return `CurFloor Deaths: ${game.curFloorDeaths}`},
+    ()=>{return `Player Armor: ${player.armor}`},
+    ()=>{return `Perf. Test: ${perf0-perf1}`}
 ]
-
 /**This new system for debug info allows active altering of the debug window */
 function updateDebugInfo(){
     var str=''
@@ -989,6 +827,7 @@ function removeDarts(){darts.forEach(d=>{d.toRemove=true});traps=[];}
 function addAndMoveDarts(){
     traps.forEach(trap=>{
         trap.fire()
+        //trap.trap.tick(trap.x,trap.y)
     })
     for(let i=0;i<darts.length;i++){
         darts[i].move();
@@ -1012,7 +851,7 @@ function trapInit(){
                         }
                         else this.count++;
 					}
-				})
+				}/*{trap:x,x:i,y:j}*/)
             }
             j++
         })
@@ -1024,6 +863,7 @@ function checkRockTile(x,y){
     //Make sure it's in bounds
     if(x<0||y<0||x>board[0].length-1||y>board.length-1)
         return false;
+    //Pushable on paths and lava only
     if(boardIs(b(x,y),T.Path,T.Lava))
         return true;
 }
@@ -1047,15 +887,14 @@ document.addEventListener('keyup',(event)=>{
     //Go back a floor
     if(event.key==='.'&&debug.nextFloor)
         loadFloor((curFloor-1>=0)?curFloor-1:curFloor)
-    if(event.key==="Enter")
-        if(game.onEnd){
+    if(event.key==="Enter"&&game.onEnd){
             loadFloor(0)
             game.onEnd=false;
             player.hidden=false
             game.loops++;
+            localStorage['gameLoops']=game.loops|0
             game.deaths=0;
-        }
-    if(event.key==='l'&&debug.doQuickLoad)
+    }if(event.key==='l'&&debug.doQuickLoad)
         loadFloor(debug.quickLoad)
     if(event.key==='c'&&debug.canShowCoords)
         debug.showCoords^=true;
@@ -1079,6 +918,7 @@ function drawAll(){
         c.width=board[0].length*T.SIZE
     
     var ctx = c.getContext('2d')
+    //Clear the board first
     ctx.clearRect(0,0,c.width,c.height)
 
     ctx.shadowColor='black'    
@@ -1095,7 +935,11 @@ function drawAll(){
         }
         if(color)
             ctx.fillStyle=color;
+        ctx.shadowOffsetX=2
+        ctx.shadowOffsetY=2
         ctx.fillRect(x,y,width,height)
+        ctx.shadowOffsetX=0
+        ctx.shadowOffsetY=0
         ctx.strokeRect(x,y,width,height)
     }
     function circle(x,y,rad,color){
@@ -1108,7 +952,11 @@ function drawAll(){
         if(color)
             ctx.fillStyle=color
         ctx.arc(x,y,rad,0,2*Math.PI)
+        ctx.shadowOffsetX=2
+        ctx.shadowOffsetY=2
         ctx.fill()
+        ctx.shadowOffsetX=0
+        ctx.shadowOffsetY=0
         ctx.stroke()
         ctx.closePath()
     }
@@ -1122,9 +970,14 @@ function drawAll(){
             rect(bx*T.SIZE,by*T.SIZE,T.SIZE,T.SIZE)
             //Images go on top
             if(x.hasImage){
-                var img=document.createElement('img')
-                img.src='gfx/'+x.hasImage;
-                ctx.drawImage(img,bx*T.SIZE,by*T.SIZE,T.SIZE-1,T.SIZE-1)
+                
+                //var img=document.createElement('img')
+                //img.src='gfx/'+x.hasImage;
+                ctx.shadowOffsetX=2
+                ctx.shadowOffsetY=2
+                ctx.drawImage(getImg(x.hasImage),bx*T.SIZE,by*T.SIZE,T.SIZE-1,T.SIZE-1)
+                ctx.shadowOffsetX=0
+                ctx.shadowOffsetY=0
                 ctx.strokeRect(bx*T.Size,by*T.SIZE,T.SIZE,T.SIZE)
             }   
             //Draw Portal ids
@@ -1146,10 +999,15 @@ function drawAll(){
         }) 
         by++
     })
+    ctx.shadowOffsetX=3
+    ctx.shadowOffsetY=3
     pickups.forEach(pickup=>{
-            ctx.fillStyle=pickup.color
-            pickup.draw(ctx)
+        ctx.fillStyle=pickup.color
+        pickup.draw(ctx)
     })
+    ctx.shadowOffsetX=0
+    ctx.shadowOffsetY=0
+
     darts.forEach(dart=>{
         ctx.fillStyle=dart.color
         circle(dart)
@@ -1161,7 +1019,11 @@ function drawAll(){
         ctx.beginPath()
         ctx.fillStyle=player.shield.color
         ctx.ellipse(s.x+s.width/2,s.y+s.height/2,s.width/2,s.height/2,0,0,Math.PI*2)
+        ctx.shadowOffsetX=3
+        ctx.shadowOffsetY=3
         ctx.fill()
+        ctx.shadowOffsetX=0
+        ctx.shadowOffsetY=0
         ctx.stroke()
         ctx.closePath()
     }
@@ -1171,6 +1033,7 @@ function drawAll(){
     }
         
     ctx.stroke();
+
     circle(0,0,0)
 }
 
@@ -1184,6 +1047,7 @@ if(!doDebug){
     debug.showPortalId=false
     debug.changeFirstFloor=false
     debug.canShowCoords=false
+    debug.clickTele=false
 }
 
 var move=false
@@ -1196,7 +1060,23 @@ function setMovement(bool){
         move=false
     }
 }
-
+function animate(){
+    requestAnimationFrame(animate)
+    drawAll()
+}
 boardInit();
 var move=setInterval(player.move,60);
-var draw=setInterval(drawAll,10)
+animate()
+
+
+function reset(isHard=false){
+    if(isHard){
+        localStorage['gameLoops']=0
+        localStorage['lowTime']=9999
+        game.loops=0
+        game.lowTime=9999
+        loadFloor(0)
+    }else
+        loadFloor(0)
+}
+var perf1=0,perf0=0

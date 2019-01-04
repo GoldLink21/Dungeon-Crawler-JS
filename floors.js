@@ -21,6 +21,11 @@ function loadFloor(floor){
         player.resetPosition()
         player.hidden=false;
         trapInit()
+        if(!game.doCountTimer)
+            game.doCountTimer=true
+        if(floor===0){
+            startTime=Date.now()
+        }
     }else
         return true;
 }
@@ -62,6 +67,12 @@ function nextFloor(){
         board=setFloorAs(T.Path);
         game.onEnd=true;
         setHelpInfo("Press Enter to begin anew");
+        game.doCountTimer=false
+        if(((curTime-startTime)/1000)<game.lowTime){
+            game.lowTime=(curTime-startTime)/1000
+            localStorage['lowTime']=game.lowTime
+        }
+
     }
 }
 
@@ -171,7 +182,7 @@ function _nextPortalId(){
  * @param {'A'|'B'|'C'} type The type of the portal
  */
 function Portal(type,id){
-    return{name:'portal',type:type,id:id,color:'rgb(165,165,165)',hasImage:'portal'+type+'.png'}
+    return{name:'portal',type:type,id:id,color:'rgb(165,165,165)',hasImage:'portal'+type+'.png',is:T.Portal.is}
 }
 
 /**
@@ -188,12 +199,12 @@ function portals(arr,p1,p2,id=(_nextPortalId())){
 
 /**This is used for making a new trap instead of T.Trap */
 function Trap(dirs=Dir.Up,delay){
-    return{name:'trap',dir: dirs,delay:delay,color:'peru'
-}}
+    return{name:'trap',dir: dirs,delay:delay,color:'peru',is:T.Trap.is}
+}
 
 /**Makes a portal that doesn't have a way back on the other side. x and y are the destination */
 function OneWayPortal(x,y){
-    return{name:'portal',type:'C',id:-1,x:x,y:y,color:'rgb(165,165,165)',hasImage:'portalA.png'}
+    return{name:'portal',type:'C',id:-1,x:x,y:y,color:'rgb(165,165,165)',hasImage:'portalA.png',is:T.Portal.is}
 }
 
 ////////////////////////////////////////////////////
@@ -226,6 +237,14 @@ function f1(){
     tile(temp,4,0,Trap(Dir.Down,40));
     SaE(temp,[1,1],[7,1])
     setHelpInfo('Darts can fly over lava, which can lead to increased difficulty sometimes')
+    if(game.loops>=5){
+        tile(temp,2,2)
+        setHelpInfo('Here, take a bit of a shorter way')
+    }
+    if(game.loops>=10){
+        tile(temp,6,2)
+        setHelpInfo('Wanna get there even faster?')
+    }
     return temp;
 }
 function f2(){
@@ -239,9 +258,16 @@ function f2(){
     tile(temp,5,[4,6],Trap(Dir.Left,25))
     tile(temp,[2,6],0,Trap(Dir.Down,25))
     tile(temp,[2,6],2,Trap(Dir.Up,25))
-    addKeys([4,7]);
+    if(game.loops>=5){
+        addKeys([4,2]);
+        setHelpInfo("Let's move that key a little closer")
+    }else{
+        addKeys([4,7]);
+        setHelpInfo("Grab the key to open the locked tile")
+    }
+    
     SaE(temp,[1,1],[7,1]);
-    setHelpInfo("Grab the key to open the locked tile")
+    
     return temp;
 }
 function f3(){
@@ -249,13 +275,19 @@ function f3(){
     tile(temp,4,[1,2,3,4,5,6,7]);
     tile(temp,[1,2,3,5,6,7],4);
     tile(temp,[5,6,7],4,T.Lock);
-    addKeys([4,1],[4,7],[1,4]);
+    
     tile(temp,[5,5],[2,6],T.Lava);
     tile(temp,[6,6],[2,6],Trap(Dir.Left,45))
     tile(temp,2,3,Trap(Dir.Down,45))
     tile(temp,2,5,Trap(Dir.Up,45));
     SaE(temp,[4,4],[8,4])
-    setHelpInfo()
+    if(game.loops>=5){
+        addKeys([4,3],[3,4],[4,5])
+        setHelpInfo("And these one's too")
+    }else{
+        addKeys([4,1],[4,7],[1,4]);
+        setHelpInfo()
+    }
     return temp;
 }
 function f4(){
@@ -293,7 +325,11 @@ function f5(){
     tile(temp,[1,7],[8,8],Trap(Dir.Up,57));
     tile(temp,4,0,Trap(Dir.Down,57))
     SaE(temp,[0,1],[8,6]);
-    setHelpInfo();
+    if(game.loops>=5){
+        pShield(1,1)
+        setHelpInfo('Here, have a shield for this run')
+    }else
+        setHelpInfo();
     return temp;
 }
 function f6(){
@@ -307,7 +343,10 @@ function f6(){
     tile(temp,[1,3,5,7,9],3,Trap(Dir.Down,80))
     tile(temp,[2,4,6,8,10],5,Trap(Dir.Up,40));
     SaE(temp,[0,1],[11,4]);
-    setHelpInfo("The darts are pretty small. Maybe you can use that to your advantage")
+    if(game.loops>=5)
+        setHelpInfo("Theres actually a secret, easier path in this level that's hidden")
+    else
+        setHelpInfo("The darts are pretty small. Maybe you can use that to your advantage")
     return temp;
 }
 function f7(){
@@ -315,7 +354,8 @@ function f7(){
     border(temp,T.Wall);
     //The chance here determines if the player will start with all needed
     //Keys or need to collect as they go, in favor of the former
-    if(chance(1,9))
+    //If you've done 5 or more loops, you get the keys every time
+    if(chance(1,15)||game.loops>=5)
         player.keys=47;
     else
         for(let i=1;i<8;i++)for(let j=1;j<8;j++)addKeys([i,j])
@@ -326,6 +366,8 @@ function f7(){
     tile(temp,[2,3,4,5,6],8,Trap(Dir.Up,35));
     SaE(temp,[7,7],[1,1])
     setHelpInfo("You can also hit r to restart the current floor")
+    if(game.loops>=5)
+        setHelpInfo('As a thanks for playing so much, have the random keys every time!')
     return temp;
 }
 function f8(){
@@ -340,28 +382,47 @@ function f8(){
     tile(temp,[1,7],[6,2],T.Lava)
     tile(temp,7,[3,4,5,6])
     SaE(temp,[1,1],[7,7])
-    setHelpInfo('Walk into the rock to push it to the next tile. It can fill in lava pits so you can '+
-    "walk over them. You can't push the rock on the slightly darker tile, but you can walk there")
+    if(game.loops>=5){
+        setHelpInfo("Here, have a shortcut")
+        tile(temp,2,2,T.Path)
+    }else{
+        setHelpInfo('Walk into the rock to push it to the next tile. It can fill in lava pits so you can '+
+        "walk over them. You can't push the rock on the slightly darker tile, but you can walk there")
+    }
     return temp;
 }
 function f9(){
     let temp=setFloorAs(T.Path)
     border(temp,T.Wall)
+
     portals(temp,[5,1],[1,7]/*,1*/);
     portals(temp,[3,1],[5,7]/*,2*/)
     portals(temp,[7,1],[3,7]/*,3*/)
-    
+
     for(let i=2;i<7;i+=2)
         tile(temp,i,[1,2,3,4,5,6,7],T.Wall)
     tile(temp,0,4,Trap(Dir.Right,35))
     tile(temp,8,4,Trap(Dir.Left,35))
     tile(temp,[2,4,6],4,T.Lava)
     SaE(temp,[7,7],[1,1])
-    setHelpInfo('I wonder what those new tiles are?')
+    if(game.loops>=5){
+        temp[7][1].id=3
+        setHelpInfo("Here, let's get you past these slow portals")
+    }else
+        setHelpInfo('I wonder what those new tiles are?')
     return temp;
 }
 function f10(){
     var temp=setFloorAs(T.Path,15,3);
+    
+    //Makes the map smaller if you finish the game more times
+    if(game.loops>=5){
+        var sub=game.loops-4
+        if(sub>10)
+            sub=10
+        temp=setFloorAs(T.Path,15-sub,3)
+    }
+
     var p=0;
     for(let i=1;i<temp[0].length;i+=2)
         tile(temp,i+1,(p++%2),T.Lava)
@@ -373,7 +434,10 @@ function f10(){
     }
     tile(temp,0,[2,1,0],T.Wall)
     SaE(temp,[1,0],[temp[0].length-1,1])
-    setHelpInfo()
+    if(game.loops>=5)
+        setHelpInfo("This level actually gets smaller the more you finish the game")
+    else
+        setHelpInfo()
     return temp;
 }
 function f11(){
@@ -438,7 +502,11 @@ function f13(){
     tile(temp,3,1,Trap(Dir.Down,35))
 
     pShield(0,2)
-    setHelpInfo("Take your shield in hand and use it with space to block those pesky darts")
+    if(game.loops>=5){
+        tile(temp,2,2)
+        setHelpInfo("Patience may be a virtue, but you gotta make record time!")
+    }else 
+        setHelpInfo("Take your shield in hand and use it with space to block those pesky darts")
     return temp
 }
 
@@ -451,20 +519,49 @@ function f14(){
     tile(temp,[6,4,4,5,4],[5,1,5,6,9],T.Bars);
     for(let i=2;i<temp.length;i+=4)
         tile(temp,[2,3,4,6,7,8],i,Trap(Dir.Up,28-i))
-
-    new Switch(9,1,{onActivate:()=>{
-        b(5,6,T.Path)
-        new Switch(9,9,{onActivate:()=>{
-            b(4,1,T.Path)
-            new Switch(1,1,{onActivate:()=>{
-                b(4,5,T.Path)
-                new Switch(1,5,{onActivate:()=>{
-                    b(4,9,T.Path)
-                    sToggleTile(1,9,6,5)
+    if(game.loops>=25){
+        //Fastest
+        tile(temp,6,5)
+    }else{
+        //Normal
+        new Switch(9,1,{onActivate:()=>{
+            if(game.loops>=20){
+                //Faster
+                b(6,5,T.Path)
+            }else{
+                //Normal
+                b(5,6,T.Path)
+                new Switch(9,9,{onActivate:()=>{
+                    if(game.loops>=15){
+                        //Shorter
+                        b(6,5,T.Path)
+                    }else{
+                        //Normal route
+                        b(4,1,T.Path)
+                        new Switch(1,1,{onActivate:()=>{
+                            if(game.loops>=10){
+                                //Slightly Shorter
+                                b(6,5,T.Path)
+                            }else{
+                                //Standard Route
+                                b(4,5,T.Path)
+                                new Switch(1,5,{onActivate:()=>{
+                                    if(game.loops>=5){
+                                        //Faster
+                                        b(6,5,T.Path)
+                                    }else{
+                                        //Longest
+                                        b(4,9,T.Path)
+                                        sToggleTile(1,9,6,5)
+                                    }
+                                }})
+                            }
+                        }})
+                    }
                 }})
-            }})
+            }
         }})
-    }})
+    }
     SaE(temp,[5,5],[9,5])
     setHelpInfo('The blue circle is a switch that you can activate. Who knows what it could do')
     return temp;
