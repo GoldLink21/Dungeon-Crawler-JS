@@ -21,6 +21,8 @@ const Menu={
 }
 
 var menu=Menu.title
+/**@type {CanvasRenderingContext2D} */
+var ctx
 
 /**Holds presets for all types of tiles*/
 var T={
@@ -50,15 +52,22 @@ for(type in T){
         for(let i=0;i<others.length;i++){
             if(this.name===others[i].name)
                 return true
+            if(typeof others[i]==='string'&&others[i]===this.name)
+                return true
         }
         return false
     }
-    T[type]['setTo']=function(other){
-        for(prop in this)
-            delete this[prop]
-        for(prop in other)
-            this[prop]=other[prop]    
-    }
+    /*
+    T[type]['to']=function(other){
+        if(!other)
+            throw new Error("Must have a type to be set to")
+        else{
+            for(sym in this)
+                delete this[sym]
+            Object.assign(this,other)
+        }
+    
+    }*/
 }
 
 
@@ -67,9 +76,30 @@ for(type in T){
  * If type is passed in, sets board[y][x] (x,y) to the type passed in
  */
 function b(x,y,type){
-    if(type)
-        board[y][x]=type;
-    else 
+    if(type){
+        if(board[y][x].is(T.Trap)){
+            for(let i=0;i<traps.length;i++){
+                if(traps[i].x===x&&traps[i].y===y){
+                    traps.splice(i--,1)
+                    break;
+                }
+            }
+        }
+        if(type.is(T.Trap)){
+            traps.push({
+                x:x,y:y,dir:type.dir,
+                delay:type.delay,count:0,speed:type.speed,
+                fire(){
+                    if(this.count>=this.delay){
+                        this.count=0;
+                        Dart(this.x,this.y,this.dir,this.speed);
+                    }
+                    else this.count++;
+                }
+            })
+        }
+        board[y][x]=Object.assign({},type);
+    }else 
         return board[y][x];
 }
 
@@ -129,11 +159,11 @@ var debug={
     /**Invincible */
     inv:false,
     /**Determines if a sidebar with extra info can be activated */
-    showInfo:true,
+    showInfo:false,
     /**Tells if to change the first floor to the value of debug.firstFloor */
     changeFirstFloor:true,
     /**The floor to change the first floor to */
-    firstFloor:14,
+    firstFloor:15,
     /**Infinite Keys */
     infKeys:false,
     /**Tells if you can hit / to load the next floor */
@@ -152,40 +182,6 @@ var debug={
     clickTele:true,
 }
 
-
-
-/**Gives the player a shield */
-function pShield(x,y){
-    return new Pickup(x,y,
-        {width:25,height:8,color:'saddleBrown',type:'shield',onGrab:()=>{player.hasShield=true},
-            onRemove:()=>{player.hasShield=false},isCircle:true})
-}
-/**Allows the player to block one hit. Ineffective with lava */
-function pArmor(x,y){
-    return new Pickup(x,y,
-        {width:25,height:25,color:'lightgrey',type:'armor',onGrab:()=>{player.armor++},
-            onRemove:()=>{player.armor=0},img:'armor.png'})
-}
-
-/**
- * Sets a switch that toggles a tile between a path and whatever it was before. Don't use on traps
- * @param {number} sx The x of the switch
- * @param {number} sy The y of the switch
- * @param {number} ox The x to toggle
- * @param {number} oy The y to toggle
- * @param {Function} onActivate Ran when activated
- * @param {boolean} canToggle If you can deactivate
- * @param {Function} onDeactivate Ran on deactivation
- */
-function sToggleTile(sx,sy,ox,oy,onActivate=()=>{},canToggle,onDeactivate=()=>{}){
-    var oldType=b(ox,oy)
-    new Switch(sx,sy,{onActivate:()=>{b(ox,oy,T.Path);onActivate()},canDeactivate:canToggle,onDeactivate:()=>{b(ox,oy,oldType);onDeactivate()}})
-}
-
-function sDart(sx,sy,dx,dy,dir){
-    new Switch(sx,sy,{activeColor:'peru',inactiveColor:'peru',onActivate:()=>{Dart(dx,dy,dir)},canDeactivate:true,onDeactivate:()=>{Dart(dx,dy,dir)}})
-}
-
 /**Randomizes one array and shuffles the other in the same order */
 function shuffleSimilar(arr1,arr2){
     var i,temp,temp2,j,len=arr1.length;
@@ -201,30 +197,35 @@ function shuffleSimilar(arr1,arr2){
 	return arr1;
 }
 
+/**Randomizes one array and shuffles the other in the same order */
+function shuffleArr(arr){
+    var i,temp,j,len=arr.length;
+	for (i=0;i<len;i++){
+		j = ~~(Math.random()*len);
+        temp=arr[i];
+        arr[i]=arr[j];
+        arr[j]=temp;
+	}
+	return arr;
+}
+
 /**
  * @returns true only with an n/d chance, else false
  * @param {number} n The numerator of the fractional chance
  * @param {number} d The denominator of the fractional chance
  */
-function chance(n,d){return Math.floor(Math.random()*d)<n;}
-
-/**Just a test function to make sure the chance function works */
-function cTest(r,n,d){
-    var out={true:0,false:0}
-    for(let i=0;i<r;i++){out[chance(n,d)]++}
-    console.log(out);
-}
+function chance(n,d){return (d)?Math.floor(Math.random()*d)<n:chance(1,n)}
 
 /**
  * Prints out an array into the console based on the backwards array I made. 
  * Only prints the first four chars of each part
  */
-function printArr(arr){
-    var str=''
+function printArr(arr,len=5){
+    var str='\n'
     arr.forEach(y=>{
         y.forEach(x=>{
-            if(x.name.length>=4) str+=x.name.substring(0,4)+'  ';
-            else str+=x.name+'.  '   
+            if(x.name.length>=len) str+=x.name.substring(0,len)+'  ';
+            else str+=x.name+'.'.repeat(len-x.name.length)+'  '  
         })
         str+='\n'
     })
@@ -233,27 +234,20 @@ function printArr(arr){
 
 /**Allows function to copy an array instead of editing the original. Just so I don't have to keep writing this */
 function copyArr(arr){
-    var nArr=new Array(arr.length);
-    var i=0;
-    arr.forEach(ele=>{nArr[i++]=ele;})
-    return nArr;
-}
-
-/**
- * A helper function for adding elements to the DOM
- * @param {string} id The id of the new element to add
- * @param {HTMLElement} parent The parent to append the new child to
- */
-function addElement(id,parent){
-    var ele=document.createElement('div');
-    ele.id=id;
-    parent.appendChild(ele);
-    HTML[id]=ele;
-    return ele
+    return arr.slice();
 }
 
 /**Creates all the HTML elements */
 function boardInit(){
+
+    function addElement(id,parent){
+        var ele=document.createElement('div');
+        ele.id=id;
+        parent.appendChild(ele);
+        HTML[id]=ele;
+        return ele
+    }
+
     addElement('board',document.body)
     addElement('midbar',HTML.board)
 
@@ -263,22 +257,22 @@ function boardInit(){
     HTML.midbar.appendChild(titleEle)
     
     addElement('info',HTML.midbar)
+    addElement('time',HTML.midbar)
     addElement('help',HTML.midbar);
 
     var canvas=document.createElement('canvas')
     canvas.id='canvas'
     HTML.board.appendChild(canvas)
     HTML.canvas=canvas
-    
-    if(debug.showInfo)
-        addElement('debug',HTML.board)
+    ctx=canvas.getContext('2d')
+    addElement('debug',HTML.board)
 
-    if(debug.clickTele){
-        canvas.addEventListener('click',(event)=>{
+    canvas.addEventListener('click',(event)=>{
+        if(debug.clickTele){
             var rp=roundPoint(event.x-canvas.offsetLeft,event.y-canvas.offsetTop)
             player.setPosition(rp[0],rp[1])
-        })
-    }
+        }
+    })
 
     updateInfo()
     loadFloor(curFloor-1);
@@ -538,7 +532,7 @@ function checkTile(x,y){
     var cur=b(x,y)
     if(cur.is(T.Path,T.Start,T.Hidden,T.NoPushRock))
         return true;
-    else if(b(x,y)===T.End)
+    else if(cur.is(T.End))
         nextFloor();
     else if(cur.is(T.Wall,T.Trap,T.Bars))
         return false
@@ -553,6 +547,8 @@ function checkTile(x,y){
     }else if(cur.is(T.Lava)){
         if(!player.onLava){
             player.kill()
+            if(debug.inv)
+                return true
             return (player.onLava=true);
         }
     //Rocks
@@ -565,7 +561,7 @@ function checkTile(x,y){
             case Dir.Right:xCheck++;break;
         }
         if(checkRockTile(xCheck,yCheck)){
-            if(b(xCheck,yCheck)===T.Lava){
+            if(b(xCheck,yCheck).is(T.Lava)){
                 b(xCheck,yCheck,T.Path)
                 b(x,y,T.Path)
             }else{
@@ -634,6 +630,8 @@ function getRounded(obj){
 
 /**@returns the tile coord of the point */
 function roundPoint(x,y){return[Math.floor(x/T.SIZE),Math.floor(y/T.SIZE)];}
+/**@returns the exact coord of the map point from the center of the tile */
+function unroundPoint(x,y,obj){return[x*T.SIZE+T.SIZE/2-((obj)?obj.width/2:0),y*T.SIZE+T.SIZE/2-((obj)?obj.height/2:0)]}
 
 var startTime=Date.now(),
     curTime=Date.now(),
@@ -642,24 +640,31 @@ var startTime=Date.now(),
 /**Updates the info on the info HTML */
 function updateInfo(){
     var ele = document.getElementById('info');
-    var str="Floor: "+curFloor+",  Keys: "+player.keys+",  Deaths: "+game.deaths;
+    var str=`Floor: ${curFloor}, Keys: ${player.keys},  Deaths: ${game.deaths}`
+    
     if(game.loops>0)
-        str+=',  Game Loops: '+game.loops;
+        str+=`,  Game Loops: ${game.loops}`;
+
+    if(ele.innerHTML!==str)
+        ele.innerHTML=str;
+
 
     //Holds the counting feature
-    str+='<br>Time: '
+    str='Time: '
     if(game.doCountTimer){
         curTime=Date.now()
         timeDuration=(curTime-startTime)/1000
+    }else{
+        
     }
-
-    str+=timeDuration+' Sec.<br>Fastest Time: '
-    str+=game.lowTime+' Sec.'
+    str+=`${timeDuration} Sec.<br>Fastest Time: ${game.lowTime} Sec.`
     //Only do it if there's something new to change
-    if(ele.innerHTML!==str)
-        ele.innerHTML=str;
+    if(HTML.time.innerHTML!==str)
+        HTML.time.innerHTML=str
     if(debug.showInfo)
         updateDebugInfo()
+    else if(!debug.showInfo&&HTML.debug.style.display!=='none')
+        HTML.debug.style.display='none'
 }
 
 /**Pass in a function that returns a string. Adds something to the side bar for debug */
@@ -681,6 +686,8 @@ var _debugStrFunc=[
 ]
 /**This new system for debug info allows active altering of the debug window */
 function updateDebugInfo(){
+    if(HTML.debug.style.display!=='block')
+        HTML.debug.style.display='block'
     var str=''
     _debugStrFunc.forEach(func=>{str+='<br>'+func()})
     if(HTML.debug.innerHTML!==str)
@@ -767,8 +774,8 @@ function flipBoard({vert=false,horiz=false}={}){
  * @param {number} x The x coord of the key
  * @param {number} y The y coord of the key
  */
-function Key(x,y){
-    new Pickup(x,y,{width:15,height:20,color:'goldenrod',type:'key',onGrab:()=>{player.keys++},onRemove:()=>{player.keys=0},img:'key.png'})
+function Key(x,y,id=_nextPickupId()){
+    new Pickup(x,y,{width:15,height:20,color:'goldenrod',type:'key',onGrab:()=>{player.keys++},onRemove:()=>{player.keys=0},img:'key.png',id:id})
 }
 
 /**
@@ -778,11 +785,11 @@ function Key(x,y){
 function addKeys(){Array.from(arguments).forEach(key=>{Key(key[0],key[1])})}
 
 /**Kind of a constructor, but done without the new keyword */
-function Dart(x,y,dir){
+function Dart(x,y,dir,speed=4){
     darts.push({
         width:10,height:10,dir:dir,
         x:x*T.SIZE+(1/2)*T.SIZE-5,y:(y*T.SIZE+(1/2)*T.SIZE-5),
-        speed:4,toRemove:false,hasTele:false,color:'green',
+        speed:speed,toRemove:false,hasTele:false,color:'green',
         checkCollide(){
             var p=getRounded(this)
             this.hasTele=false;
@@ -836,6 +843,7 @@ function addAndMoveDarts(){
 }
 
 function trapInit(){
+    
     var i=0,j=0;
     board.forEach(y=>{
         j=0;
@@ -843,7 +851,7 @@ function trapInit(){
             if(x.name===T.Trap.name){
                 traps.push({
                     x:j,y:i,dir:x.dir,
-                    delay:x.delay,count:0,
+                    delay:x.delay,count:0,speed:x.speed,
 					fire(){
                         if(this.count>=this.delay){
                             this.count=0;
@@ -851,12 +859,35 @@ function trapInit(){
                         }
                         else this.count++;
 					}
-				}/*{trap:x,x:i,y:j}*/)
+				})
             }
             j++
         })
         i++
     })
+    //Implementation of new system
+    /*
+    var i=0,j=0
+    board.forEach(y=>{
+        y.forEach(x=>{
+            if(x.is(tTrap())){
+                console.log('trap')
+                traps.push({
+                    x:x.x,y:x.y,dir:x.dir,delay:x.max,count:0,
+                    fire(){
+                        if(this.count>=this.delay){
+                            this.count=0;
+                            Dart(this.x,this.y,this.dir);
+                        }
+                        else this.count++;
+                    }
+                })
+            }
+            j++
+        })
+        j=0
+        i++
+    })*/
 }
 
 function checkRockTile(x,y){
@@ -898,6 +929,9 @@ document.addEventListener('keyup',(event)=>{
         loadFloor(debug.quickLoad)
     if(event.key==='c'&&debug.canShowCoords)
         debug.showCoords^=true;
+    if(event.key==='i'&&doDebug)
+        debug.showInfo^=true
+
 })
 
 /**Helper function for adding movement event listeners to remove repetition */
@@ -917,11 +951,11 @@ function drawAll(){
     if(c.width!==board[0].length*T.SIZE)
         c.width=board[0].length*T.SIZE
     
-    var ctx = c.getContext('2d')
+    //var ctx = c.getContext('2d')
     //Clear the board first
     ctx.clearRect(0,0,c.width,c.height)
 
-    ctx.shadowColor='black'    
+    ctx.shadowColor='black'  
     /**
      * @param {any} x The x to draw or the object to draw
      * @param {number|boolean} y The y to draw or if the color of the object shouldn't be used

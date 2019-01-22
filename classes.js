@@ -40,11 +40,16 @@ class Counter{
 }
 
 var _pickupOnRemoveAll=[],
-    _genericPickupType=0;
+    _genericPickupType=0,
+    _genericPickupId=0;
 /**Gets a new type name for any generic pickups made without a type */
 function _nextPickupType(){
     _genericPickupType++
-    return _genericPickupType.toString(16)
+    return _genericPickupType
+}
+function _nextPickupId(){
+    _genericPickupId++
+    return _genericPickupId
 }
 
 class Pickup{
@@ -59,17 +64,23 @@ class Pickup{
      * @param {Function} onRemove The function to run when the object gets removed. Usually ()=>{counter=0}
      * @param {string} img The route to the img name for the pickup if available
      * @param {boolean} hidden Tells Whether to make the pickup hidden or not
+     * @param {number} id The id for selecting a single pickup 
+     * @example function pArmor(x,y,id)//This is the general structure for making a new pickup of any new class. They should not need more input than this
      */
-    constructor(x,y,{width=10,height=10,color='white',type=_nextPickupType(),onGrab=()=>{},onRemove=()=>{},isCircle=false,img,addToArr=true,hidden=false}={}){
+    constructor(x,y,{width=10,height=10,color='white',type=_nextPickupType(),id=_nextPickupId(),onGrab=()=>{},onRemove=()=>{},isCircle=false,img,addToArr=true,hidden=false,isActive=true}={}){
         this.x=(x*T.SIZE+T.SIZE/2-width/2)
         this.y=(y*T.SIZE+T.SIZE/2-height/2)
         this.width=width
         this.height=height
         this.color=color
         this.onGrab=onGrab
+        /**Unique type for specific types of pickups. Used for telling which removal functions to run */
         this.type=type
+        /**Unique id for each new Pickup, generated automatically. Can also be set beforehand */
+        this.id=id
         this.isCircle=isCircle
         this.hidden=hidden
+        this.isActive=isActive
         Pickup._addRemoveFunc(type,onRemove)
         //Only set this.img if there is an img
         if(img)
@@ -77,10 +88,18 @@ class Pickup{
         this.toRemove=false
         if(addToArr)
             pickups.push(this)
+
+        this.self=this
     }
     isPlayerCollide(){
+        if(!this.isActive)
+            return false
         return!(((this.y+this.height)<(player.y))||
             (this.y>(player.y+player.height))||((this.x+this.width)<player.x)||(this.x>(player.x+player.width)));
+    }
+    setActive(bool){
+        this.isActive=bool
+        this.hidden=!bool
     }
     checkPlayerCollide(){
         if(this.isPlayerCollide()){
@@ -92,9 +111,6 @@ class Pickup{
     draw(ctx){
         if(!this.hidden){
             if(this.img){
-                
-                //var newImg=document.createElement('img')
-                //newImg.src='gfx/'+this.img
                 ctx.shadowOffsetX=3
                 ctx.shadowOffsetY=3
                 ctx.drawImage(getImg(this.img),this.x,this.y,this.width,this.height)
@@ -102,6 +118,7 @@ class Pickup{
                 ctx.shadowOffsetY=3
             }else{
                 if(this.isCircle){
+                    //ctx.save()
                     ctx.beginPath();
                     ctx.fillStyle=this.color
                     ctx.ellipse(this.x+this.width/2,this.y+this.height/2,this.width/2,this.height/2,0,0,Math.PI*2)
@@ -112,6 +129,7 @@ class Pickup{
                     ctx.shadowOffsetY=0
                     ctx.stroke()
                     ctx.closePath()
+                    //ctx.restore()
                 }else{
                     ctx.fillStyle=this.color
                     ctx.shadowOffsetX=3
@@ -167,6 +185,9 @@ class Pickup{
         if(toAdd)
             _pickupOnRemoveAll.push(obj)
     }
+    static getById(id){
+        return pickups.find(x=>x.id==id)
+    }
 }
 
 class Switch extends Pickup{
@@ -181,8 +202,8 @@ class Switch extends Pickup{
      * @param {string} inactiveColor The color before activation
      * @param {string} activeColor The color after being activated
      */
-    constructor(x,y,{onActivate=()=>{},canDeactivate=false,onDeactivate=()=>{},inactiveColor='blue',activeColor='darkblue',addToArr=true}={}){
-        super(x,y,{width:T.SIZE/2,height:T.SIZE/2,color:inactiveColor,type:'switch',onGrab:onActivate,onRemove:()=>{},isCircle:true,addToArr:addToArr})
+    constructor(x,y,{onActivate=()=>{},canDeactivate=false,onDeactivate,inactiveColor='blue',activeColor='darkblue',addToArr=true,isActive=true,id=_nextPickupId()}={}){
+        super(x,y,{width:T.SIZE/2,height:T.SIZE/2,color:inactiveColor,type:'switch',onGrab:onActivate,onRemove:()=>{},isCircle:true,addToArr:addToArr,id:id,isActive:isActive})
         this.hasActivated=false
         this.canDeactivate=canDeactivate
         this.onDeactivate=onDeactivate
@@ -201,7 +222,11 @@ class Switch extends Pickup{
         //If collided and activated and able to deactivate and you've stopped touching the player
         }if(pc&&this.hasActivated&&this.canDeactivate&&this.hasUntouchedPlayer){
             this.hasActivated=false
-            this.onDeactivate()
+            //If it can deactivate but onDeactivate isn't defined, then uses onGrab instead
+            if(this.onDeactivate)
+                this.onDeactivate()
+            else 
+                this.onGrab()
             this.color=this.inactiveColor
             this.hasUntouchedPlayer=false
         //If not collided and you haven't stopped touching player
@@ -210,87 +235,77 @@ class Switch extends Pickup{
     }
 }
 
-class Tile{
-    constructor(name,color,canWalkOn=false,img){
-        this.width=T.SIZE
-        this.height=T.SIZE
-        this.color=color
-        this.name=name
-        this.canWalkOn=canWalkOn
-        if(img)
-            this.img=img
-    }
-    /**@param {CanvasRenderingContext2D} ctx*/
-    draw(ctx,x,y){
-        ctx.shadowOffsetX=3
-        ctx.shadowOffsetY=3
+/**Gives the player a shield */
+function pShield(x,y,id){
+    return new Pickup(x,y,
+        {width:25,height:8,color:'saddleBrown',type:'shield',onGrab:()=>{player.hasShield=true},
+            onRemove:()=>{player.hasShield=false},isCircle:true,id:id})
+}
+/**Allows the player to block one hit. Ineffective with lava */
+function pArmor(x,y,id){
+    return new Pickup(x,y,
+        {width:25,height:25,color:'lightgrey',type:'armor',onGrab:()=>{player.armor++},
+            onRemove:()=>{player.armor=0},img:'armor.png',id:id})
+}
 
-        ctx.fillStyle=this.color
-        ctx.fillRect(x*T.SIZE,y*T.SIZE,this.width,this.height)
-        if(this.img){
-            var img=document.createElement('img')
-            img.src='gfx/'+this.img
-            ctx.drawImage(getImg(img),x*T.SIZE,y*T.SIZE,this.width,this.height)
-        }
-        ctx.shadowOffsetX=0
-        ctx.shadowOffsetY=0
-        ctx.strokeRect(x*T.SIZE,y*T.SIZE,this.width,this.height)
-    }
-    is(){
-        for(let i=0;i<arguments.length;i++){
-            //console.log(arguments[i],typeof arguments[i], arguments[i].name,arguments[i].name===this.name)
-            if(typeof arguments[i]==='string'){
-                if(this.name===arguments[i])
-                    return true
-            }else{
-                if(this.name===arguments[i].name)
-                    return true
+/**
+ * Sets a switch that toggles a tile between a path and whatever it was before. Don't use on traps
+ * @param {number} sx The x of the switch
+ * @param {number} sy The y of the switch
+ * @param {number} ox The x to toggle
+ * @param {number} oy The y to toggle
+ * @param {Function} onActivate Ran when activated
+ * @param {boolean} canToggle If you can deactivate
+ * @param {Function} onDeactivate Ran on deactivation
+ * @param {any} oldType The type to set the tile to when deactivated. Add by hand if switch is placed on level load. 
+ *                      Does not matter if !canToggle
+ */
+function sToggleTile(sx,sy,ox,oy,onActivate=()=>{},canToggle=false,onDeactivate=()=>{},oldType=b(ox,oy)){
+    return new Switch(sx,sy,{onActivate:()=>{b(ox,oy,T.Path);onActivate()},canDeactivate:canToggle,onDeactivate:()=>{b(ox,oy,oldType);onDeactivate()}})
+}
+
+/**Summons a dart at (dx,dy) going dir */
+function sDart(sx,sy,dx,dy,dir,speed){
+    return new Switch(sx,sy,{activeColor:'peru',inactiveColor:'peru',onActivate:()=>{Dart(dx,dy,dir,speed)},canDeactivate:true})
+}
+
+/**
+ * Spawns a certain pickup at (px,py) if there isn't already one there
+ * @param {number} sx The x of the switch 
+ * @param {number} sy The y of the switch
+ * @param {number} px The x of the pickup when spawned
+ * @param {number} py The y of the pickup when spawned
+ * @param {Function} construct The function or constructor to run when making the new Pickup
+ * @param {any} nId The id to make the pickup so only one may spawn
+ */
+function sPickupSpawn(sx,sy,px,py,construct,nId=_nextPickupId()){
+    return new Switch(sx,sy,{canDeactivate:true,onActivate:(id=nId)=>{
+        if(!Pickup.getById(id))
+            new construct(px,py,id)
+    }})
+}
+
+/**Spawns armor at (px,py) only if the player has less armor than n */
+function sArmorMax(sx,sy,px,py,n,nId=_nextPickupId()){
+    return new Switch(sx,sy,{canDeactivate:true,onActivate:()=>{
+        if(player.armor<n&&!Pickup.getById(nId))
+            pArmor(px,py,nId)
+    }})
+}
+
+function sTrapTile(sx,sy,tx,ty,dir,delay,speed){
+    return new Switch(sx,sy,{onActivate:()=>{
+        b(tx,ty,Trap(dir,delay))
+        traps.push({
+            x:tx,y:ty,dir:dir,
+            delay:delay,count:0,speed:speed,
+            fire(){
+                if(this.count>=this.delay){
+                    this.count=0;
+                    Dart(this.x,this.y,this.dir,this.speed);
+                }
+                else this.count++;
             }
-        }
-        return false
-    }
+        })
+    }})
 }
-class Traps extends Tile{
-    constructor(dir,delay){
-        super('trap','peru',false)
-        this.dir=dir
-        this.cur=0
-        this.max=delay
-    }
-    tick(x,y){
-        this.cur++
-        if(this.cur>=this.max){
-            console.log(x,y)
-            this.cur=0
-            Dart(x,y,this.dir)
-        }
-    }
-}
-
-class Portals extends Tile{
-    constructor(type,id,x,y){
-        super('portal',tPath().color,true,'portal'+type.toUpperCase()+'.png')
-        this.type=type
-        if(type==='c'||type==='C'){
-            this.x=x
-            this.y=y
-        }else
-            this.id=id
-    }
-    isA(){return this.type.toLowerCase()==='a'}
-    isB(){return this.type.toLowerCase()==='b'}
-    isC(){return this.type.toLowerCase()==='c'}
-}
-
-function tWall(){return new Tile('wall','rgb(78,78,78)',false)}
-function tPath(){return new Tile('path','rgb(165,165,165)',true)}
-function tLava(){return new Tile('lava','maroon',true)}
-function tLock(){return new Tile('lock',tPath().color,false,'lock.png')}
-function tStart(){return new Tile('start','white',true)}
-function tEnd(){return new Tile('end','gold',true)}
-function tHidden(){return new Tile('hidden','rgb(65, 65, 65)',true)}
-function tRock(){return new Tile('rock',tPath().color,false,'rock.png')}
-function tNoRock(){return new Tile('noRock','rgb(135,135,135)',true)}
-function tTrap(x,y,dir,delay){return new Traps(x,y,dir,delay)}
-function tPortal(type,id,x,y){return new Portals(type,id,x,y)}
-function tBars(){return new Tile('bars',tPath().color,false,'bars.png')}
