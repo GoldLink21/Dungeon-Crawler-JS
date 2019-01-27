@@ -1,3 +1,4 @@
+//#region Small-Classes
 class Counter{
     /**
      * A class for counting times a thing happens and running a function after that
@@ -39,26 +40,72 @@ class Counter{
     get max(){return this._max}
 }
 
+var images={
+    preload(...imgs){
+        imgs.forEach(img=>{
+            var i=new Image()
+            i.src='gfx/'+img
+            this[img]=i
+        })
+    },
+    get(str){
+        if(this[str])
+            return this[str]
+        else throw new ReferenceError(`Image of gfx/${str} not preloaded`)
+    }
+}
+images.preload('armor.png','bars.png','key.png','lock.png','portalA.png','portalB.png','portalC.png','rock.png')
+
+var Clock={
+    milliseconds:0,
+    start:function() {
+        var self=this;
+        this.interval=setInterval(()=>{
+            self.milliseconds++;
+        },10);
+    },
+    pause:function(){
+        clearInterval(this.interval);
+        delete this.interval;
+    },
+    resume:function(){
+        if(!this.interval)this.start();
+    },
+    toString:function(){
+        return Clock.parse(this.milliseconds)
+    },
+    parse(milli){
+        var sec=parseInt((milli/100)),
+            min=parseInt(sec/60),
+            mil=milli%100
+        if(mil.toString().length===1)
+            mil+='0'
+        return min+':'+sec%60+'.'+mil
+    },
+    unParse(str){
+        var split=str.split(':'),
+            t=split[1].split('.')
+        return(parseInt(split[0]*6000)+parseInt(t[0]*100)+parseInt(t[1]))
+    }
+};
+Clock.start()
+//#endregion
+
 var _pickupOnRemoveAll=[],
     _genericPickupType=0,
     _genericPickupId=0;
 /**Gets a new type name for any generic pickups made without a type */
 function _nextPickupType(){
-    _genericPickupType++
-    return _genericPickupType
+    return ++_genericPickupType
 }
 function _nextPickupId(){
-    _genericPickupId++
-    return _genericPickupId
+    return ++_genericPickupId
 }
 
 class Pickup{
     /**
-     * @param {number} x Map based x coord
-     * @param {number} y Map based y coord
-     * @param {number} height Height of the object
-     * @param {number} width Width of the object
-     * @param {string} color Color to draw the object as
+     * Objects that appear on the map above a tile and are collected upon player collision. Any functions defined 
+     * for preset types of pickups should be prefixed with a p and have the first three parameters x, y, and id
      * @param {string} type The name of the type of object
      * @param {Function} onGrab The function to run when the obj is grabbed. Usually ()=>{counter++}
      * @param {Function} onRemove The function to run when the object gets removed. Usually ()=>{counter=0}
@@ -113,7 +160,7 @@ class Pickup{
             if(this.img){
                 ctx.shadowOffsetX=3
                 ctx.shadowOffsetY=3
-                ctx.drawImage(getImg(this.img),this.x,this.y,this.width,this.height)
+                ctx.drawImage(images.get(this.img),this.x,this.y,this.width,this.height)
                 ctx.shadowOffsetX=3
                 ctx.shadowOffsetY=3
             }else{
@@ -142,24 +189,6 @@ class Pickup{
             }
         }
     }
-    /*
-    flipLocation({vert=false,horiz=false}={}){
-        if(!vert&&!horiz)
-            return
-        //bw-trap.x-1
-        if(horiz)
-            this.x=board.length-this.x-1
-        if(vert)
-            this.y=board[0].length-this.y-1
-    }
-    static flipAll({vert=false,horiz=false}={}){
-        if(!vert&&!horiz)
-            return
-        var arg=arguments
-        pickups.forEach(pickup=>{
-            pickup.flipLocation(arg)
-        })
-    }*/
     static checkAllCollide(){
         for(let i=0;i<pickups.length;i++){
             pickups[i].checkPlayerCollide()
@@ -193,7 +222,8 @@ class Pickup{
 class Switch extends Pickup{
     /**
      * Class for pickups that you can't actually pick up, but instead can be activated and deactivated to do stuff.
-     * They stay on the map after interactions which allows changing the map while playing
+     * They stay on the map after interactions which allows changing the map while playing. Prefix functions
+     * defining switch types with an s
      * @param {number} x Map x
      * @param {number} y Map y
      * @param {Function} onActivate Function used on activation
@@ -235,6 +265,8 @@ class Switch extends Pickup{
     }
 }
 
+//#region Predefined-objects
+
 /**Gives the player a shield */
 function pShield(x,y,id){
     return new Pickup(x,y,
@@ -250,13 +282,9 @@ function pArmor(x,y,id){
 
 /**
  * Sets a switch that toggles a tile between a path and whatever it was before. Don't use on traps
- * @param {number} sx The x of the switch
- * @param {number} sy The y of the switch
- * @param {number} ox The x to toggle
- * @param {number} oy The y to toggle
  * @param {Function} onActivate Ran when activated
  * @param {boolean} canToggle If you can deactivate
- * @param {Function} onDeactivate Ran on deactivation
+ * @param {Function} onDeactivate Ran on deactivation. Runs on top of switching the tile back
  * @param {any} oldType The type to set the tile to when deactivated. Add by hand if switch is placed on level load. 
  *                      Does not matter if !canToggle
  */
@@ -271,10 +299,6 @@ function sDart(sx,sy,dx,dy,dir,speed){
 
 /**
  * Spawns a certain pickup at (px,py) if there isn't already one there
- * @param {number} sx The x of the switch 
- * @param {number} sy The y of the switch
- * @param {number} px The x of the pickup when spawned
- * @param {number} py The y of the pickup when spawned
  * @param {Function} construct The function or constructor to run when making the new Pickup
  * @param {any} nId The id to make the pickup so only one may spawn
  */
@@ -309,3 +333,200 @@ function sTrapTile(sx,sy,tx,ty,dir,delay,speed){
         })
     }})
 }
+
+function pCheckPoint(x,y,id=_nextPickupId(),addOldCheckPoint=true,onGrab=()=>{}){
+    var t=new Pickup(x,y,{color:'white',id:id,onGrab:()=>{
+        for(var i=0;i<board.length;i++)
+            for(var j=0;j<board[i].length;j++)
+                if(b(j,i).is(T.Start)){
+                    b(j,i,T.Path)
+                    if(addOldCheckPoint)
+                        pCheckPoint(j,i)
+                    break; 
+                }
+
+        var rp=roundPoint(t.x,t.y)
+        b(rp[0],rp[1],T.Start)
+        spawnPoint={x:rp[0],y:rp[1]}
+        onGrab()
+    }})
+    return t
+}
+
+/**Allows players on hard difficulty to respawn on the floor that this was grabbed on */
+function pGoldCheckPoint(x,y,id=_nextPickupId()){
+    if(game.difficulty.isHard()&&curFloor!==goldSpawnFloor){
+        var t=new Pickup(x,y,{color:'gold',id:id,onGrab:()=>{
+            goldSpawnFloor=curFloor
+        }})
+        return t;
+    }
+}
+
+function pLava(x,y,id=_nextPickupId()){
+    var p= new Pickup(x,y,{color:'maroon',id:id,onGrab:()=>{
+        player.kill();
+        var rp=roundPoint(p.x,p.y)
+        pLava(rp[0],rp[1],p.id)
+    }})
+    return p
+}
+//#endregion
+
+//#region Enemy
+
+/**Mostly used for positions in Enemy Movement. Short for vector */
+function v(x,y){return {x:x,y:y}}
+
+const EnemyMoveStyles={
+    /**Up||Down then Left||Right */
+    vertHoriz:'vertHoriz',
+    /**Left||Right then Up||Down */
+    horizVert:'horizVert',
+    /**Two dirs at once */
+    //diag:'diag'
+}
+
+class EnemyPath{
+    constructor(doesLoop,...points){
+        this.doesLoop=doesLoop
+        this.cur=0
+        this.dir=EnemyPath.dirs.fwd
+        this.points=points
+    }
+    next(){
+        if(!this.doesLoop){
+            this.cur++
+            if(this.cur===this.points.length)
+                this.cur=0
+            return this.points[this.cur]
+        }else{
+            if(this.dir===EnemyPath.dirs.fwd){
+                if(this.cur===this.points.length-1){
+                    this.dir=EnemyPath.dirs.bkwd
+                    this.cur--
+                }else this.cur++
+            }else if(this.dir===EnemyPath.dirs.bkwd){
+                if(this.cur===0){
+                    this.dir=EnemyPath.dirs.fwd
+                    this.cur++
+                }else this.cur--
+            }
+            return this.points[this.cur]
+        }
+    }
+    add(...vects){
+        vects.forEach(vect=>this.points.push(vect))
+    }
+    static get dirs(){return {fwd:'fwd',bkwd:'bkwd'}}
+}
+
+var enemies=[]
+
+class Enemy{
+    constructor(ePath,{moveStyle=EnemyMoveStyles.vertHoriz,speed=5,width=15,height=15,color='crimson',flipMoveStyle=true}={}){
+        this.path=ePath
+        this.curGoal=this.path.points[0]
+        
+        this.speed=speed
+        this.width=width
+        this.height=height
+        this.setPosition(this.path.points[0].x,this.path.points[0].y)
+        this.color=color
+        this.isMoving=false
+        if(flipMoveStyle){
+            if(moveStyle===EnemyMoveStyles.horizVert)
+                this.moveStyle=EnemyMoveStyles.vertHoriz
+            else if(moveStyle===EnemyMoveStyles.vertHoriz)
+                this.moveStyle=EnemyMoveStyles.horizVert
+        }else
+            this.moveStyle=moveStyle
+        this.flipMoveStyle=flipMoveStyle
+        this.dx=0
+        this.dy=0
+        enemies.push(this)
+    }
+    setPosition(x,y){
+        this.x=(x*T.SIZE+T.SIZE/2-this.width/2)
+        this.y=(y*T.SIZE+T.SIZE/2-this.height/2)
+    }
+    moveToNextPoint(){
+        this.glideTo(this.curGoal.x,this.curGoal.y)
+        if(!this.isMoving){
+            if((this.path.cur===this.path.points.length-1||this.path.cur===0)&&this.flipMoveStyle){
+                if(this.moveStyle===EnemyMoveStyles.horizVert)
+                    this.moveStyle=EnemyMoveStyles.vertHoriz
+                else if(this.moveStyle===EnemyMoveStyles.vertHoriz)
+                    this.moveStyle=EnemyMoveStyles.horizVert
+            }
+            this.curGoal=this.path.next()
+        }
+
+    }
+    glideTo(x,y){
+        var urp=unroundPoint(x,y,this)
+        var t=this
+        function m(xyb){
+            if(xyb==='x'){
+                t.isMoving=true
+                if(t.x<urp[0]){
+                    t.x+=t.speed
+                    if(t.x>urp[0])
+                        t.x=urp[0]
+                }else{
+                    t.x-=t.speed
+                    if(t.x<urp[0])
+                        t.x=urp[0]
+                }
+            }else if(xyb==='y'){
+                t.isMoving=true
+                if(t.y<urp[1]){
+                    t.y+=t.speed
+                    if(t.y>urp[1])
+                        t.y=urp[1]
+                }else{
+                    t.y-=t.speed
+                    if(t.y<urp[1])
+                        t.y=urp[1]
+                }
+            }
+        }
+        if(this.moveStyle===EnemyMoveStyles.horizVert){
+            if(this.x!==urp[0])
+                m('x')
+            else if(this.y!==urp[1])
+                m('y')
+            else
+                this.isMoving=false
+        }else if(this.moveStyle===EnemyMoveStyles.vertHoriz){
+            if(this.y!==urp[1])
+                m('y')
+            else if(this.x!==urp[0])
+                m('x')
+            else
+                this.isMoving=false
+        }
+        this.draw()
+    }
+    draw(){
+        ctx.fillStyle=this.color
+        ctx.shadowOffsetX=2
+        ctx.shadowOffsetY=2
+        ctx.fillRect(this.x,this.y,this.width,this.height)
+        ctx.shadowOffsetX=0
+        ctx.shadowOffsetY=0
+        ctx.strokeRect(this.x,this.y,this.width,this.height)
+    }
+    isPlayerCollide(){
+        return!(((this.y+this.height)<(player.y))||
+            (this.y>(player.y+player.height))||((this.x+this.width)<player.x)||(this.x>(player.x+player.width)));
+    }
+    static checkAllCollide(){
+        enemies.forEach(enemy=>{
+            if(enemy.isPlayerCollide())
+                player.kill()
+        })
+    }
+}
+
+//#endregion

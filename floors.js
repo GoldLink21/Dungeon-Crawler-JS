@@ -2,7 +2,7 @@
 This is all the floors in game and some of the functions related to making floors
 */
 
-////////////////////////////////////////////////////
+//#region helper-functions
 //These are the helper functions
 const testFloorNum=9001
 /**
@@ -13,18 +13,33 @@ function loadFloor(floor){
     game.curFloorDeaths=0
     removeDarts();
     Pickup.removeAll()
-    curFloor=floor;
+    enemies=[]
+    var isSameFloor=false
+    if(curFloor!==floor){
+        curFloor=floor;
+    }else{
+        isSameFloor=true
+    }
     //First checks if the floor exists, then will load everything properly
     if(isFloor(floor)){
         _portalId=0;
         board=getFloor(floor);
-        player.resetPosition()
+        //If you're on the same floor and you've left a spawnPoint, go right there instead. This is
+        //mostly for medium difficulty
+        if((isSameFloor||floor===spawnPoint.floor)&&spawnPoint){
+            player.setPosition(spawnPoint.x,spawnPoint.y)
+        }else{
+            player.resetPosition()
+        }
         player.hidden=false;
         trapInit()
         if(!game.doCountTimer)
             game.doCountTimer=true
         if(floor===0){
-            startTime=Date.now()
+            Clock.milliseconds=0
+            Clock.resume()
+            spawnPoint=false
+            goldSpawnFloor=false
         }
     }else
         return true;
@@ -58,10 +73,11 @@ function nextFloor(){
         game.onEnd=true;
         setHelpInfo("Press Enter to begin anew");
         game.doCountTimer=false
-        if(((curTime-startTime)/1000)<game.lowTime){
-            game.lowTime=(curTime-startTime)/1000
+        if(Clock.milliseconds<Clock.unParse(game.lowTime)){
+            game.lowTime=Clock.toString()
             localStorage['lowTime']=game.lowTime
         }
+        Clock.pause()
 
     }
 }
@@ -98,16 +114,13 @@ function border(arr,type){
  * @param {object[][]} arr*/
 function addBorder(arr,type){
     type=Object.assign({},type)
-    for(let i=0;i<arr.length;i++){
-        arr[i].unshift(type)
-        arr[i].push(type)
-    }
-    var col=[]
-    //Plus two to factor in it moving the size up
-    for(let i=0;i<arr.length+2;i++)
-        col[i]=type
-    arr.unshift(col)
-    arr.push(col)
+    var nArr=new Array(arr[0].length+2).fill(type)
+    board.forEach(row=>{
+        row.push(type)
+        row.unshift(type)
+    })
+    arr.unshift(nArr)
+    arr.push(nArr)
 }
 
 /**
@@ -163,6 +176,13 @@ function SaE(arr,start,end){
     arr[start[1]][start[0]]=T.Start;
     arr[end[1]][end[0]]=T.End;
 }
+
+/**Shortened for using two funcions that are needed for every floor. Short for floorSetup */
+function fSetup(arr,start,end,helpInfo){
+    SaE(arr,start,end)
+    setHelpInfo(helpInfo)
+}
+
 /**Always increment after pairing multiple portals */
 var _portalId=0
 function _nextPortalId(){
@@ -199,18 +219,19 @@ function Trap(dirs=Dir.Up,delay,speed){
 function OneWayPortal(x,y){
     return{name:'portal',type:'C',id:-1,x:x,y:y,color:'rgb(165,165,165)',hasImage:'portalA.png',is:T.Portal.is}
 }
-
-function arrRng(start,end){
+/**Short for array range. Makes an array with numbers from start-end */
+function aR(start,end){
     var index=0,arr=[];
     for(let i=start;(start<end)?(i<end+1):(i>end-1);(start<end)?(i++):(i--))
         arr[index++]=i
     return arr;
 }
+//#endregion
 
-////////////////////////////////////////////////////
-
+//#region floors
 /**Put all functions for the floors in here with their index */
 var floorFunc={
+    //#region f0-9
     0:function(){
         let temp=setFloorAs(T.Wall);
         tile(temp,[1,2,3],6);
@@ -229,7 +250,7 @@ var floorFunc={
         let temp=setFloorAs(T.Wall);
         for(let i=1;i<8;i++)
             tile(temp,[1,3,5,7],i)
-        tile(temp,[2,3,4,5,6],7);
+        tile(temp,aR(2,6),7);
         tile(temp,4,2);
         tile(temp,[3,5],1,T.Wall)
         tile(temp,[4,2,6,4,4],[7,6,6,1,6],T.Lava);
@@ -259,6 +280,7 @@ var floorFunc={
         tile(temp,5,[4,6],Trap(Dir.Left,25))
         tile(temp,[2,6],0,Trap(Dir.Down,25))
         tile(temp,[2,6],2,Trap(Dir.Up,25))
+
         if(game.loops>=5){
             addKeys([4,2]);
             setHelpInfo("Let's move that key a little closer")
@@ -294,9 +316,9 @@ var floorFunc={
     4:function(){
         let temp=setFloorAs(T.Path)
         border(temp,T.Lava);
-        tile(temp,2,[1,2,3,4,5,6,7],T.Lava)
-        tile(temp,4,[1,2,3,4,5,6,7],T.Lava)
-        tile(temp,6,[1,2,3,4,5,6,7],T.Lava)
+        tile(temp,2,aR(1,7),T.Lava)
+        tile(temp,4,aR(1,7),T.Lava)
+        tile(temp,6,aR(1,7),T.Lava)
         //I use the chance function to add some variation in the level design
         if(chance(1,2)){
             tile(temp,[2,4,6],1,T.Lock)
@@ -316,9 +338,9 @@ var floorFunc={
     },
     5:function(){
         var temp=setFloorAs(T.Wall);
-        tile(temp,1,[1,2,3,4,5,6]);
+        tile(temp,1,aR(1,6));
         tile(temp,[2,3,4],6);
-        tile(temp,4,[2,3,4,5,6])
+        tile(temp,4,aR(2,6))
         tile(temp,[5,6,7],2)
         tile(temp,7,[3,4,5,6])
         tile(temp,[4,7,1],[1,7,7],T.Lava)
@@ -361,10 +383,10 @@ var floorFunc={
         else
             for(let i=1;i<8;i++)for(let j=1;j<8;j++)addKeys([i,j])
     
-        tile(temp,0,[2,3,4,5,6],Trap(Dir.Right,35));
-        tile(temp,8,[2,3,4,5,6],Trap(Dir.Left,35));
-        tile(temp,[2,3,4,5,6],0,Trap(Dir.Down,35));
-        tile(temp,[2,3,4,5,6],8,Trap(Dir.Up,35));
+        tile(temp,0,aR(2,6),Trap(Dir.Right,35));
+        tile(temp,8,aR(2,6),Trap(Dir.Left,35));
+        tile(temp,aR(2,6),0,Trap(Dir.Down,35));
+        tile(temp,aR(2,6),8,Trap(Dir.Up,35));
         SaE(temp,[7,7],[1,1])
         setHelpInfo("You can also hit r to restart the current floor")
         if(game.loops>=5)
@@ -377,7 +399,7 @@ var floorFunc={
         tile(temp,5,6,T.NoPushRock)
         tile(temp,1,[2,4,5,6,7])
         tile(temp,[2,3,4,5],7)
-        tile(temp,3,[1,2,3,4,5,6])
+        tile(temp,3,aR(1,6))
         tile(temp,3,0,Trap(Dir.Down,55))
         tile(temp,[5,6,7],2)
         tile(temp,[1,7],[6,2],T.Lava)
@@ -396,12 +418,12 @@ var floorFunc={
         let temp=setFloorAs(T.Path)
         border(temp,T.Wall)
     
-        portals(temp,[5,1],[1,7]/*,1*/);
-        portals(temp,[3,1],[5,7]/*,2*/)
-        portals(temp,[7,1],[3,7]/*,3*/)
+        portals(temp,[5,1],[1,7]);
+        portals(temp,[3,1],[5,7])
+        portals(temp,[7,1],[3,7])
     
         for(let i=2;i<7;i+=2)
-            tile(temp,i,[1,2,3,4,5,6,7],T.Wall)
+            tile(temp,i,aR(1,7),T.Wall)
         tile(temp,0,4,Trap(Dir.Right,35))
         tile(temp,8,4,Trap(Dir.Left,35))
         tile(temp,[2,4,6],4,T.Lava)
@@ -413,6 +435,8 @@ var floorFunc={
             setHelpInfo('I wonder what those new tiles are?')
         return temp;
     },
+    //#endregion
+    //#region  f10-19
     10:function(){
         var temp=setFloorAs(T.Path,15,3);
     
@@ -495,8 +519,8 @@ var floorFunc={
         tile(temp,2,8)
         tile(temp,0,[1,2])
         tile(temp,4,[1,2])
-        tile(temp,1,[2,3,4,5,6,7,8])
-        tile(temp,3,[2,3,4,5,6,7,8])
+        tile(temp,1,aR(2,8))
+        tile(temp,3,aR(2,8))
     
         tile(temp,1,9,Trap(Dir.UP,35))
         tile(temp,3,1,Trap(Dir.Down,35))
@@ -574,7 +598,7 @@ var floorFunc={
             tile(temp,[i,12-i],[i,i],T.Lava)
         }
         //Setup barriers to the top
-        tile(temp,arrRng(4,8),3,T.Bars)
+        tile(temp,aR(4,8),3,T.Bars)
         tile(temp,[5,6,7],4,T.Bars)
         tile(temp,6,5,T.Bars)
 
@@ -629,7 +653,31 @@ var floorFunc={
         setHelpInfo(false)
         SaE(temp,[6,6],[6,1])
         return temp
-    }
+    },
+    16:()=>{
+        var temp=setFloorAs(T.NoPushRock,9,5)
+        border(temp,T.Wall)
+        var paths=[
+            new EnemyPath(false,v(7,1),v(5,3),v(3,1),v(1,3),v(3,1),v(5,3),v(7,1)),
+            new EnemyPath(false,v(1,3),v(3,1),v(5,3),v(7,1),v(5,3),v(3,1),v(1,3)),
+            new EnemyPath(false,v(1,1),v(3,3),v(5,1),v(7,3),v(5,1),v(3,3),v(1,1)),
+            new EnemyPath(false,v(7,3),v(5,1),v(3,3),v(1,1),v(3,3),v(5,1),v(7,3))
+        ]
+        paths.forEach(path=>new Enemy(path,{moveStyle:EnemyMoveStyles.vertHoriz}))
+        tile(temp,4,2,T.Lava)
+        tile(temp,[6,2],2,T.Path)
+        SaE(temp,[0,2],[8,2])
+        setHelpInfo('These are enemies. Each one Has it\'s own agenda to kill you. Or just get where it wants to go')
+        return temp
+    },
+    /*
+    17:()=>{
+        var temp=setFloorAs(T.Lava)
+
+        SaE(temp,[1,1],[3,3])
+        return temp
+    }*/
+    //#endregion
 }
 floorFunc[testFloorNum]=floorTest
 
@@ -654,3 +702,5 @@ function floorTest(){
     setHelpInfo('This is just a floor for testing each tile and such')
     return temp;
 }
+
+//#endregion

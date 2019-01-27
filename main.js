@@ -24,6 +24,11 @@ var menu=Menu.title
 /**@type {CanvasRenderingContext2D} */
 var ctx
 
+/**Holds the location to spawn for a single floor */
+var spawnPoint=false
+/**Only used in hard difficulty. Tells what floor to respawn at. */
+var goldSpawnFloor=false
+
 /**Holds presets for all types of tiles*/
 var T={
     SIZE:35,
@@ -76,7 +81,9 @@ for(type in T){
  * If type is passed in, sets board[y][x] (x,y) to the type passed in
  */
 function b(x,y,type){
+    //This is used as a setter if type is passed in
     if(type){
+        //Dynamically removes traps if replaced
         if(board[y][x].is(T.Trap)){
             for(let i=0;i<traps.length;i++){
                 if(traps[i].x===x&&traps[i].y===y){
@@ -85,6 +92,7 @@ function b(x,y,type){
                 }
             }
         }
+        //Allows traps to be added dynamically
         if(type.is(T.Trap)){
             traps.push({
                 x:x,y:y,dir:type.dir,
@@ -98,8 +106,9 @@ function b(x,y,type){
                 }
             })
         }
+        //Assigns the properies of the type to a new object so they don't all reference the same object
         board[y][x]=Object.assign({},type);
-    }else 
+    }else
         return board[y][x];
 }
 
@@ -147,11 +156,12 @@ var game={
         isNormal(){return game.difficulty.cur===Difficulty.Normal},
         isHard(){return game.difficulty.cur===Difficulty.Hard}
     },
+    /**If the timer gets incremented */
     doCountTimer:true,
-    lowTime:localStorage['lowTime']||9999
+    lowTime:localStorage['lowTime']||'9999:99.99'
 }  
 
-    /**Tells whether to use the set debug settings */
+/**Tells whether to use the set debug settings */
 var doDebug=false
 
 /**This holds all variables for debug testing */
@@ -159,11 +169,11 @@ var debug={
     /**Invincible */
     inv:false,
     /**Determines if a sidebar with extra info can be activated */
-    showInfo:false,
+    showInfo:true,
     /**Tells if to change the first floor to the value of debug.firstFloor */
     changeFirstFloor:true,
     /**The floor to change the first floor to */
-    firstFloor:15,
+    firstFloor:16,
     /**Infinite Keys */
     infKeys:false,
     /**Tells if you can hit / to load the next floor */
@@ -197,7 +207,7 @@ function shuffleSimilar(arr1,arr2){
 	return arr1;
 }
 
-/**Randomizes one array and shuffles the other in the same order */
+/**Randomizes an array */
 function shuffleArr(arr){
     var i,temp,j,len=arr.length;
 	for (i=0;i<len;i++){
@@ -218,7 +228,7 @@ function chance(n,d){return (d)?Math.floor(Math.random()*d)<n:chance(1,n)}
 
 /**
  * Prints out an array into the console based on the backwards array I made. 
- * Only prints the first four chars of each part
+ * Only prints len letters of each part
  */
 function printArr(arr,len=5){
     var str='\n'
@@ -239,7 +249,7 @@ function copyArr(arr){
 
 /**Creates all the HTML elements */
 function boardInit(){
-
+    /**Helper for making a new div and appending it to parent */
     function addElement(id,parent){
         var ele=document.createElement('div');
         ele.id=id;
@@ -267,6 +277,7 @@ function boardInit(){
     ctx=canvas.getContext('2d')
     addElement('debug',HTML.board)
 
+    //Adds an event for if you have click teleporting active
     canvas.addEventListener('click',(event)=>{
         if(debug.clickTele){
             var rp=roundPoint(event.x-canvas.offsetLeft,event.y-canvas.offsetTop)
@@ -400,9 +411,11 @@ var player={
         //This is to check if you've blocked
         if(player.block.isBlock)
             player.block.counter.count()
+        //You're not blocking but you still can't block, i.e. cooldown
         else if(!player.block.canBlock)
             player.block.delayCounter.count()
 
+        //Only moving a single direction and you're not blocking
         if(dx===0^dy===0&&!player.block.isBlock){
             if(dx!==0){
                 switch(dx){
@@ -427,6 +440,10 @@ var player={
         checkOnPortal();
         updateInfo()
         Pickup.checkAllCollide()
+
+        //Moves all the enemies towards their next point
+        enemies.forEach(enemy=>enemy.moveToNextPoint())
+        Enemy.checkAllCollide()
         //Pick the color only if you can see the player
         if(!player.hidden)
             player.setColor()
@@ -446,7 +463,7 @@ var player={
     resetPosition(){
         for(var i=0;i<board.length;i++)
             for(var j=0;j<board[i].length;j++)
-                if(b(j,i)===T.Start){
+                if(b(j,i).is(T.Start)){
                     player.setPosition(j,i);
                     return true; 
                 }
@@ -466,6 +483,7 @@ var player={
     },
     /**Sets the player's color based on certain situations */
     setColor(){
+        //Follows priority of inv, hurt, armor, gay, then normal
         if(debug.inv){
             if(player.color!==player.colors.inv)
                 player.color=player.colors.inv
@@ -495,6 +513,7 @@ var player={
         player.hurt.isHurt=true
         //Not invincible and don't have armor
         if(!debug.inv&&player.armor<=0){
+            //Different by difficulty
             switch(game.difficulty.cur){
                 case Difficulty.Easy:
                     player.resetPosition()
@@ -505,7 +524,7 @@ var player={
                     game.curFloorDeaths++
                     break;
                 case Difficulty.Hard:
-                    loadFloor(0)
+                    loadFloor((goldSpawnFloor)?goldSpawnFloor:0)
                     break;
             }
             game.deaths++;
@@ -532,15 +551,17 @@ function checkTile(x,y){
     var cur=b(x,y)
     if(cur.is(T.Path,T.Start,T.Hidden,T.NoPushRock))
         return true;
-    else if(cur.is(T.End))
+    else if(cur.is(T.End)){
+        spawnPoint=false
         nextFloor();
-    else if(cur.is(T.Wall,T.Trap,T.Bars))
+    }else if(cur.is(T.Wall,T.Trap,T.Bars))
         return false
     //Keys and locks
     else if(cur.is(T.Lock)){
         if(player.keys>0){
             player.keys--;
             b(x,y,T.Path)
+            //Returns false so the player has a small pause when unlocking a lock
             return false;
         }else return false
     //Lava
@@ -650,14 +671,8 @@ function updateInfo(){
 
 
     //Holds the counting feature
-    str='Time: '
-    if(game.doCountTimer){
-        curTime=Date.now()
-        timeDuration=(curTime-startTime)/1000
-    }else{
-        
-    }
-    str+=`${timeDuration} Sec.<br>Fastest Time: ${game.lowTime} Sec.`
+    str='Time: '+Clock.toString()+'<br>Fastest Time: '+game.lowTime
+    
     //Only do it if there's something new to change
     if(HTML.time.innerHTML!==str)
         HTML.time.innerHTML=str
@@ -693,81 +708,6 @@ function updateDebugInfo(){
     if(HTML.debug.innerHTML!==str)
         HTML.debug.innerHTML=str
 }
-
-/*    Incomplete and needs work
-function flipDarts(){
-	darts.forEach((dart)=>{
-		switch(dart.dir){
-            case Dir.Down:dart.dir=Dir.Up;break;
-            case Dir.Up:dart.dir=Dir.Down;break;
-            case Dir.Right:dart.dir=Dir.Left;break
-            case Dir.Left:dart.dir=Dir.Right;break
-        }
-	})
-}
-
-function flipTraps(){
-	traps.forEach((dart)=>{
-		switch(dart.dir){
-            case Dir.Down:dart.dir=Dir.Up;break;
-            case Dir.Up:dart.dir=Dir.Down;break;
-            case Dir.Right:dart.dir=Dir.Left;break
-            case Dir.Left:dart.dir=Dir.Right;break
-        }
-	})
-}
-
-function flipTrapLocation({vert=false,horiz=false}={}){
-    if(!vert&&!horiz)
-        return
-    var bw=board.length,bh=board[0].length
-    traps.forEach(trap=>{
-        if(horiz){
-            trap.x=bw-trap.x-1
-            if(trap.dir===Dir.Left)
-                trap.dir=Dir.Right
-            else if(trap.dir===Dir.Right)
-                trap.dir===Dir.Left
-        }if(vert){
-            trap.y=bh-trap.y-1
-            if(trap.dir===Dir.Up)
-                trap.dir=Dir.Down
-            else if(trap.dir===Dir.Down)
-                trap.dir=Dir.Up
-        }
-    })
-}
-
-function flipBoard({vert=false,horiz=false}={}){
-    if(!vert&&!horiz)
-        return
-    if(vert){
-        board.reverse()
-        board.forEach(row=>{
-            row.forEach(tile=>{
-                switch(tile.dir){
-                    case Dir.Down:tile.dir=Dir.Up;break;
-                    case Dir.Up:tile.dir=Dir.Down;break;
-                }
-            })
-        })
-    }if(horiz){
-        board.forEach(row=>{
-            row.reverse()
-            row.forEach(tile=>{
-                if(tile.name===T.Trap.name){
-                    switch(tile.dir){
-                        case Dir.Right:tile.dir=Dir.Left;break
-                        case Dir.Left:tile.dir=Dir.Right;break
-                    }
-                }
-            })
-        })
-    }
-    Pickup.flipAll()
-    flipTrapLocation(arguments[0])
-}
-*/
 
 /**
  * Adds a key at tile x and y for the floor. Do not use the new keyword
@@ -1009,7 +949,7 @@ function drawAll(){
                 //img.src='gfx/'+x.hasImage;
                 ctx.shadowOffsetX=2
                 ctx.shadowOffsetY=2
-                ctx.drawImage(getImg(x.hasImage),bx*T.SIZE,by*T.SIZE,T.SIZE-1,T.SIZE-1)
+                ctx.drawImage(images.get(x.hasImage),bx*T.SIZE,by*T.SIZE,T.SIZE-1,T.SIZE-1)
                 ctx.shadowOffsetX=0
                 ctx.shadowOffsetY=0
                 ctx.strokeRect(bx*T.Size,by*T.SIZE,T.SIZE,T.SIZE)
@@ -1042,11 +982,14 @@ function drawAll(){
     ctx.shadowOffsetX=0
     ctx.shadowOffsetY=0
 
+    enemies.forEach(enemy=>enemy.draw())
+
     darts.forEach(dart=>{
         ctx.fillStyle=dart.color
         circle(dart)
 
     })
+
     //Draw the shield
     if(player.shield.active){
         var s=player.shield
@@ -1101,14 +1044,14 @@ function animate(){
 boardInit();
 var move=setInterval(player.move,60);
 animate()
-
+drawAll()
 
 function reset(isHard=false){
     if(isHard){
         localStorage['gameLoops']=0
-        localStorage['lowTime']=9999
+        localStorage['lowTime']='9999:99.99'
         game.loops=0
-        game.lowTime=9999
+        game.lowTime='9999:99.99'
         loadFloor(0)
     }else
         loadFloor(0)
