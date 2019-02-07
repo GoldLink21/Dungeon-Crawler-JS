@@ -51,11 +51,19 @@ var images={
     get(str){
         if(this[str])
             return this[str]
-        else throw new ReferenceError(`Image of gfx/${str} not preloaded`)
+        else{
+            try{
+                images.preload(str)
+                return images.get(str)
+            }catch(e){
+                throw new ReferenceError(`Image of gfx/${str} not preloaded`)
+            }
+        } 
     }
 }
-images.preload('armor.png','bars.png','key.png','lock.png','portalA.png','portalB.png','portalC.png','rock.png')
+images.preload('armor.png','bars.png','key.png','lock.png','portalA.png','portalB.png','portalC.png','rock.png','dart.png','speedUp.png')
 
+/**Handles all the timing system. While it says milliseconds, it's actually in deciseconds to save on lag and precision */
 var Clock={
     milliseconds:0,
     start:function() {
@@ -74,6 +82,7 @@ var Clock={
     toString:function(){
         return Clock.parse(this.milliseconds)
     },
+    /**Takes the deciseconds passed in and makes it m:s.ds */
     parse(milli){
         var sec=parseInt((milli/100)),
             min=parseInt(sec/60),
@@ -82,6 +91,7 @@ var Clock={
             mil+='0'
         return min+':'+sec%60+'.'+mil
     },
+    /**Takes m:s.ds and returns the deciseconds */
     unParse(str){
         var split=str.split(':'),
             t=split[1].split('.')
@@ -93,13 +103,14 @@ Clock.start()
 
 var _pickupOnRemoveAll=[],
     _genericPickupType=0,
-    _genericPickupId=0;
+    _genericId=0;
 /**Gets a new type name for any generic pickups made without a type */
 function _nextPickupType(){
     return ++_genericPickupType
 }
-function _nextPickupId(){
-    return ++_genericPickupId
+/**Gets a unique id for every new pickup unless specified */
+function _nextId(){
+    return ++_genericId
 }
 
 class Pickup{
@@ -114,9 +125,9 @@ class Pickup{
      * @param {number} id The id for selecting a single pickup 
      * @example function pArmor(x,y,id)//This is the general structure for making a new pickup of any new class. They should not need more input than this
      */
-    constructor(x,y,{width=10,height=10,color='white',type=_nextPickupType(),id=_nextPickupId(),onGrab=()=>{},onRemove=()=>{},isCircle=false,img,addToArr=true,hidden=false,isActive=true}={}){
-        this.x=(x*T.SIZE+T.SIZE/2-width/2)
-        this.y=(y*T.SIZE+T.SIZE/2-height/2)
+    constructor(x,y,{width=10,height=10,color='white',type=_nextPickupType(),id=_nextId(),onGrab=()=>{},onRemove=()=>{},isCircle=false,img,addToArr=true,hidden=false,isActive=true}={}){
+        this.x=(x*Tn.SIZE+Tn.SIZE/2-width/2)
+        this.y=(y*Tn.SIZE+Tn.SIZE/2-height/2)
         this.width=width
         this.height=height
         this.color=color
@@ -165,7 +176,6 @@ class Pickup{
                 ctx.shadowOffsetY=3
             }else{
                 if(this.isCircle){
-                    //ctx.save()
                     ctx.beginPath();
                     ctx.fillStyle=this.color
                     ctx.ellipse(this.x+this.width/2,this.y+this.height/2,this.width/2,this.height/2,0,0,Math.PI*2)
@@ -176,7 +186,6 @@ class Pickup{
                     ctx.shadowOffsetY=0
                     ctx.stroke()
                     ctx.closePath()
-                    //ctx.restore()
                 }else{
                     ctx.fillStyle=this.color
                     ctx.shadowOffsetX=3
@@ -232,8 +241,8 @@ class Switch extends Pickup{
      * @param {string} inactiveColor The color before activation
      * @param {string} activeColor The color after being activated
      */
-    constructor(x,y,{onActivate=()=>{},canDeactivate=false,onDeactivate,inactiveColor='blue',activeColor='darkblue',addToArr=true,isActive=true,id=_nextPickupId()}={}){
-        super(x,y,{width:T.SIZE/2,height:T.SIZE/2,color:inactiveColor,type:'switch',onGrab:onActivate,onRemove:()=>{},isCircle:true,addToArr:addToArr,id:id,isActive:isActive})
+    constructor(x,y,{onActivate=()=>{},canDeactivate=false,onDeactivate,inactiveColor='blue',activeColor='darkblue',addToArr=true,isActive=true,id=_nextId()}={}){
+        super(x,y,{width:Tn.SIZE/2,height:Tn.SIZE/2,color:inactiveColor,type:'switch',onGrab:onActivate,onRemove:()=>{},isCircle:true,addToArr:addToArr,id:id,isActive:isActive})
         this.hasActivated=false
         this.canDeactivate=canDeactivate
         this.onDeactivate=onDeactivate
@@ -241,6 +250,7 @@ class Switch extends Pickup{
         this.activeColor=activeColor
         this.hasUntouchedPlayer=true
     }
+    /**Overrides checkPlayerCollision to allow non-removal and step on-step off detection */
     checkPlayerCollide(){
         var pc=this.isPlayerCollide()
         //If collided, hasn't activated and you've stoped touching player
@@ -280,6 +290,52 @@ function pArmor(x,y,id){
             onRemove:()=>{player.armor=0},img:'armor.png',id:id})
 }
 
+function pCheckPoint(x,y,id=_nextId(),addOldCheckPoint=true,onGrab=()=>{}){
+    var t=new Pickup(x,y,{color:'white',id:id,onGrab:()=>{
+        for(var i=0;i<board.length;i++)
+            for(var j=0;j<board[i].length;j++)
+                if(b(j,i).is(Tn.start)){
+                    b(j,i,Tn.Path())
+                    if(addOldCheckPoint)
+                        pCheckPoint(j,i)
+                    break; 
+                }
+
+        var rp=roundPoint(t.x,t.y)
+        b(rp[0],rp[1],Tn.Start())
+        spawnPoint={x:rp[0],y:rp[1]}
+        onGrab()
+    }})
+    return t
+}
+
+/**Allows players on hard difficulty to respawn on the floor that this was grabbed on */
+function pGoldCheckPoint(x,y,id=_nextId()){
+    if(game.difficulty.isHard()&&curFloor!==goldSpawnFloor){
+        var t=new Pickup(x,y,{color:'gold',id:id,onGrab:()=>{
+            goldSpawnFloor=curFloor
+        }})
+        return t;
+    }
+}
+
+function pLava(x,y,id=_nextId()){
+    var p= new Pickup(x,y,{color:'maroon',id:id,onGrab:()=>{
+        player.kill();
+        var rp=roundPoint(p.x,p.y)
+        pLava(rp[0],rp[1],p.id)
+    }})
+    return p
+}
+
+function pSpeedUp(x,y,id){
+    return new Pickup(x,y,{id:id,onGrab:()=>{
+        player.speed+=2
+    },onRemove:()=>{
+        player.speed=player.defaultSpeed
+    },img:'speedUp.png',width:18,height:18})
+}
+
 /**
  * Sets a switch that toggles a tile between a path and whatever it was before. Don't use on traps
  * @param {Function} onActivate Ran when activated
@@ -288,8 +344,18 @@ function pArmor(x,y,id){
  * @param {any} oldType The type to set the tile to when deactivated. Add by hand if switch is placed on level load. 
  *                      Does not matter if !canToggle
  */
-function sToggleTile(sx,sy,ox,oy,onActivate=()=>{},canToggle=false,onDeactivate=()=>{},oldType=b(ox,oy)){
-    return new Switch(sx,sy,{onActivate:()=>{b(ox,oy,T.Path);onActivate()},canDeactivate:canToggle,onDeactivate:()=>{b(ox,oy,oldType);onDeactivate()}})
+function sToggleTile(sx,sy,ox,oy,{onActivate=()=>{},canToggle=false,onDeactivate=()=>{},oldType=b(ox,oy),newType=Tn.Path()}={}){
+    return new Switch(sx,sy,{
+        onActivate:()=>{
+            b(ox,oy,newType)
+            onActivate()
+        },
+        canDeactivate:canToggle,
+        onDeactivate:()=>{
+            b(ox,oy,oldType)
+            onDeactivate()
+        }
+    })
 }
 
 /**Summons a dart at (dx,dy) going dir */
@@ -302,7 +368,7 @@ function sDart(sx,sy,dx,dy,dir,speed){
  * @param {Function} construct The function or constructor to run when making the new Pickup
  * @param {any} nId The id to make the pickup so only one may spawn
  */
-function sPickupSpawn(sx,sy,px,py,construct,nId=_nextPickupId()){
+function sPickupSpawn(sx,sy,px,py,construct,nId=_nextId()){
     return new Switch(sx,sy,{canDeactivate:true,onActivate:(id=nId)=>{
         if(!Pickup.getById(id))
             new construct(px,py,id)
@@ -310,7 +376,7 @@ function sPickupSpawn(sx,sy,px,py,construct,nId=_nextPickupId()){
 }
 
 /**Spawns armor at (px,py) only if the player has less armor than n */
-function sArmorMax(sx,sy,px,py,n,nId=_nextPickupId()){
+function sArmorMax(sx,sy,px,py,n,nId=_nextId()){
     return new Switch(sx,sy,{canDeactivate:true,onActivate:()=>{
         if(player.armor<n&&!Pickup.getById(nId))
             pArmor(px,py,nId)
@@ -319,58 +385,10 @@ function sArmorMax(sx,sy,px,py,n,nId=_nextPickupId()){
 
 function sTrapTile(sx,sy,tx,ty,dir,delay,speed){
     return new Switch(sx,sy,{onActivate:()=>{
-        b(tx,ty,Trap(dir,delay))
-        traps.push({
-            x:tx,y:ty,dir:dir,
-            delay:delay,count:0,speed:speed,
-            fire(){
-                if(this.count>=this.delay){
-                    this.count=0;
-                    Dart(this.x,this.y,this.dir,this.speed);
-                }
-                else this.count++;
-            }
-        })
+        b(tx,ty,Tn.Trap(dir,delay,speed))
     }})
 }
 
-function pCheckPoint(x,y,id=_nextPickupId(),addOldCheckPoint=true,onGrab=()=>{}){
-    var t=new Pickup(x,y,{color:'white',id:id,onGrab:()=>{
-        for(var i=0;i<board.length;i++)
-            for(var j=0;j<board[i].length;j++)
-                if(b(j,i).is(T.Start)){
-                    b(j,i,T.Path)
-                    if(addOldCheckPoint)
-                        pCheckPoint(j,i)
-                    break; 
-                }
-
-        var rp=roundPoint(t.x,t.y)
-        b(rp[0],rp[1],T.Start)
-        spawnPoint={x:rp[0],y:rp[1]}
-        onGrab()
-    }})
-    return t
-}
-
-/**Allows players on hard difficulty to respawn on the floor that this was grabbed on */
-function pGoldCheckPoint(x,y,id=_nextPickupId()){
-    if(game.difficulty.isHard()&&curFloor!==goldSpawnFloor){
-        var t=new Pickup(x,y,{color:'gold',id:id,onGrab:()=>{
-            goldSpawnFloor=curFloor
-        }})
-        return t;
-    }
-}
-
-function pLava(x,y,id=_nextPickupId()){
-    var p= new Pickup(x,y,{color:'maroon',id:id,onGrab:()=>{
-        player.kill();
-        var rp=roundPoint(p.x,p.y)
-        pLava(rp[0],rp[1],p.id)
-    }})
-    return p
-}
 //#endregion
 
 //#region Enemy
@@ -378,20 +396,11 @@ function pLava(x,y,id=_nextPickupId()){
 /**Mostly used for positions in Enemy Movement. Short for vector */
 function v(x,y){return {x:x,y:y}}
 
-const EnemyMoveStyles={
-    /**Up||Down then Left||Right */
-    vertHoriz:'vertHoriz',
-    /**Left||Right then Up||Down */
-    horizVert:'horizVert',
-    /**Two dirs at once */
-    //diag:'diag'
-}
-
-class EnemyPath{
+class Path{
     constructor(doesLoop,...points){
         this.doesLoop=doesLoop
         this.cur=0
-        this.dir=EnemyPath.dirs.fwd
+        this.dir=Path.dirs.fwd
         this.points=points
     }
     next(){
@@ -401,14 +410,14 @@ class EnemyPath{
                 this.cur=0
             return this.points[this.cur]
         }else{
-            if(this.dir===EnemyPath.dirs.fwd){
+            if(this.dir===Path.dirs.fwd){
                 if(this.cur===this.points.length-1){
-                    this.dir=EnemyPath.dirs.bkwd
+                    this.dir=Path.dirs.bkwd
                     this.cur--
                 }else this.cur++
-            }else if(this.dir===EnemyPath.dirs.bkwd){
+            }else if(this.dir===Path.dirs.bkwd){
                 if(this.cur===0){
-                    this.dir=EnemyPath.dirs.fwd
+                    this.dir=Path.dirs.fwd
                     this.cur++
                 }else this.cur--
             }
@@ -418,14 +427,17 @@ class EnemyPath{
     add(...vects){
         vects.forEach(vect=>this.points.push(vect))
     }
+    /**Tells if moving foward through the points or backwards */
     static get dirs(){return {fwd:'fwd',bkwd:'bkwd'}}
+    /**Tells if to go up/down then left/right or the other way around */
+    static get styles(){return {vertHoriz:'vertHoriz',horizVert:'horizVert'}}
 }
 
 var enemies=[]
 
 class Enemy{
-    constructor(ePath,{moveStyle=EnemyMoveStyles.vertHoriz,speed=5,width=15,height=15,color='crimson',flipMoveStyle=true}={}){
-        this.path=ePath
+    constructor(path,{moveStyle=Path.styles.vertHoriz,speed=5,width=15,height=15,color='crimson',flipMoveStyle=true}={}){
+        this.path=path
         this.curGoal=this.path.points[0]
         
         this.speed=speed
@@ -435,10 +447,10 @@ class Enemy{
         this.color=color
         this.isMoving=false
         if(flipMoveStyle){
-            if(moveStyle===EnemyMoveStyles.horizVert)
-                this.moveStyle=EnemyMoveStyles.vertHoriz
-            else if(moveStyle===EnemyMoveStyles.vertHoriz)
-                this.moveStyle=EnemyMoveStyles.horizVert
+            if(moveStyle===Path.styles.horizVert)
+                this.moveStyle=Path.styles.vertHoriz
+            else if(moveStyle===Path.styles.vertHoriz)
+                this.moveStyle=Path.styles.horizVert
         }else
             this.moveStyle=moveStyle
         this.flipMoveStyle=flipMoveStyle
@@ -447,17 +459,17 @@ class Enemy{
         enemies.push(this)
     }
     setPosition(x,y){
-        this.x=(x*T.SIZE+T.SIZE/2-this.width/2)
-        this.y=(y*T.SIZE+T.SIZE/2-this.height/2)
+        this.x=(x*Tn.SIZE+Tn.SIZE/2-this.width/2)
+        this.y=(y*Tn.SIZE+Tn.SIZE/2-this.height/2)
     }
     moveToNextPoint(){
         this.glideTo(this.curGoal.x,this.curGoal.y)
         if(!this.isMoving){
             if((this.path.cur===this.path.points.length-1||this.path.cur===0)&&this.flipMoveStyle){
-                if(this.moveStyle===EnemyMoveStyles.horizVert)
-                    this.moveStyle=EnemyMoveStyles.vertHoriz
-                else if(this.moveStyle===EnemyMoveStyles.vertHoriz)
-                    this.moveStyle=EnemyMoveStyles.horizVert
+                if(this.moveStyle===Path.styles.horizVert)
+                    this.moveStyle=Path.styles.vertHoriz
+                else if(this.moveStyle===Path.styles.vertHoriz)
+                    this.moveStyle=Path.styles.horizVert
             }
             this.curGoal=this.path.next()
         }
@@ -491,14 +503,14 @@ class Enemy{
                 }
             }
         }
-        if(this.moveStyle===EnemyMoveStyles.horizVert){
+        if(this.moveStyle===Path.styles.horizVert){
             if(this.x!==urp[0])
                 m('x')
             else if(this.y!==urp[1])
                 m('y')
             else
                 this.isMoving=false
-        }else if(this.moveStyle===EnemyMoveStyles.vertHoriz){
+        }else if(this.moveStyle===Path.styles.vertHoriz){
             if(this.y!==urp[1])
                 m('y')
             else if(this.x!==urp[0])

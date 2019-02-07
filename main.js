@@ -1,14 +1,23 @@
 /*
- * Special thanks to Sarah for making the awesome portal
+ * Special thanks to Sarah and Noble for making the awesome portal
  * graphics and probably other awesome graphics in the
  * future
  * 
  * Also thanks to all the friends of mine who helped
  * without even knowing it by play testing all my levels
  */
+const version='0.1.0'
+
+/**Tells whether to use the set debug settings */
+var doDebug=false
 
 /**Enum for directions */
 const Dir={Up:'up',Down:'down',Left:'left',Right:'right'}
+
+if(localStorage['version']!==version){
+    localStorage['version']=version
+    localStorage['lowTime']='9999:99.99'
+}
 
 /**Enum for difficulty */
 const Difficulty={Easy:'easy',Normal:'normal',Hard:'hard'}
@@ -29,52 +38,50 @@ var spawnPoint=false
 /**Only used in hard difficulty. Tells what floor to respawn at. */
 var goldSpawnFloor=false
 
-/**Holds presets for all types of tiles*/
-var T={
-    SIZE:35,
-    Wall:{name:'wall',color:'rgb(78,78,78)'},
-    Path:{name:'path',color:'rgb(165,165,165)'},
-    Lava:{name:'lava',color:'maroon'},
-    Lock:{name:'lock',color:'rgb(165,165,165)',hasImage:'lock.png'},
-    Start:{name:'start',color:'white'},
-    End:{name:'end',color:'gold'},
-    Hidden:{name:'hidden',color:'rgb(65, 65, 65)'},
-    Rock:{name:'rock',color:'rgb(165,165,165)',hasImage:'rock.png'},
-    //This is for a tile you can walk on, but can't push a rock on
-    NoPushRock:{name:'noRock',color:'rgb(135,135,135)'},
-    //Don't use T.Trap or T.Portal because they will all sync up to the same thing as they will just become
-    //References to the same object. Use the Trap function or portals function
-    Trap:{name:'trap',dir:undefined,delay:undefined,color:'peru'},
-    Portal:{name:'portal',type:undefined,id:undefined,hasImage:'portalA.png',color:'rgb(165,165,165)'},
-    //These are like locks, but only able to be opened with switches and stuff
-    Bars:{name:'bars',color:'rgb(165,165,165)',hasImage:'bars.png'}
-}
-
-//Add functions to all objects
-for(type in T){
-    //is function
-    T[type]['is']=function(...others){
+function Tile(name,color,hasImage,otherProps){
+    this.name=name;this.color=color;this.hasImage=hasImage
+    this.size=35;this.width=this.size;this.height=this.size
+    this.is=function(...others){
         for(let i=0;i<others.length;i++){
-            if(this.name===others[i].name)
-                return true
             if(typeof others[i]==='string'&&others[i]===this.name)
+                return true
+            if(this.name===others[i].name)
                 return true
         }
         return false
     }
-    /*
-    T[type]['to']=function(other){
-        if(!other)
-            throw new Error("Must have a type to be set to")
-        else{
-            for(sym in this)
-                delete this[sym]
-            Object.assign(this,other)
-        }
-    
-    }*/
+    Object.assign(this,otherProps)
+}
+function subTile(tile,subName,otherProps){
+    return Object.assign(tile,{subName:subName},otherProps)
 }
 
+var Tn={
+    //These are all tiles with distinct properties
+    Wall(color='rgb(78,78,78)',hasImage){return new Tile('wall',color,hasImage)},
+    Path(color='rgb(165,165,165)',hasImage){return new Tile('path',color,hasImage)},
+    Lava(color='maroon',hasImage){return new Tile('lava',color,hasImage)},
+    Lock(color='rgb(165,165,165)',hasImage='lock.png'){return new Tile('lock',color,hasImage)},
+    Start(color='white',hasImage){return new Tile('start',color,hasImage)},
+    End(color='gold',hasImage){return new Tile('end',color,hasImage)},
+    Rock(color='rgb(165,165,165)',hasImage='rock.png'){return new Tile('rock',color,hasImage)},
+    NoRock(color='rgb(135,135,135)',hasImage){return new Tile('noRock',color,hasImage)},
+    Trap(dir=Dir.Up,delay=30,speed,color='peru',hasImage='trap.png'){return new Tile('trap',color,hasImage,{speed:speed,dir:dir,delay:delay})},
+    Portal(type,id,color='rgb(165,165,165)',hasImage='portal'+type+'.png'){return new Tile('portal',color,hasImage,{id:id,type:type})},
+    OneWayPortal(x,y,color='rgb(165,165,165)',hasImage='portalC.png'){return subTile(Tn.Portal('C',-1,color,hasImage),'oneWayPortal',{x:x,y:y})},//new Tile('portal',color,hasImage,{type:'C',x:x,y:y})},
+    //These are predefined subtypes of other type of tiles which do nothing different
+    Bars(){return subTile(Tn.Wall(undefined,'bars.png'),'bars')},
+    Hidden(){return subTile(Tn.Path('rgb(65,65,65)'),'hidden')},
+    FakeLava(){return subTile(Tn.Path('#600000'),'fakeLava')}
+}
+//Makes lowercase properties of everything for the is function
+for(var type in Tn){
+    var name=Tn[type]().name
+    if(!Tn[name])
+        Object.defineProperty(Tn,name,{value:name})
+}
+
+Object.defineProperty(Tn,'SIZE',{value:35,})
 
 /**
  * If just x and y are passed in, then returns board[y][x] which is (x,y)
@@ -84,49 +91,44 @@ function b(x,y,type){
     //This is used as a setter if type is passed in
     if(type){
         //Dynamically removes traps if replaced
-        if(board[y][x].is(T.Trap)){
+        if(board[y][x].is(Tn.trap)){
             for(let i=0;i<traps.length;i++){
                 if(traps[i].x===x&&traps[i].y===y){
-                    traps.splice(i--,1)
+                    traps.splice(i,1)
                     break;
                 }
             }
         }
         //Allows traps to be added dynamically
-        if(type.is(T.Trap)){
-            traps.push({
-                x:x,y:y,dir:type.dir,
-                delay:type.delay,count:0,speed:type.speed,
-                fire(){
-                    if(this.count>=this.delay){
-                        this.count=0;
-                        Dart(this.x,this.y,this.dir,this.speed);
-                    }
-                    else this.count++;
-                }
-            })
+        if(type.is(Tn.trap)){
+            traps.push(trapObject(x,y,type.dir,type.delay,type.speed))
         }
         //Assigns the properies of the type to a new object so they don't all reference the same object
-        board[y][x]=Object.assign({},type);
+        board[y][x]=type;
     }else
         return board[y][x];
 }
 
-/**
- * @description Checks if board[y][x]||b(x,y) is any other arguments
- * @param {'b(x,y)'} byx The function b(x,y)
- * @argument args in as many types of tiles, i.e. T.Start, T.End etc. after b(x,y)
- * @example boardIs(b(x,y),T.End,T.Start) //returns true if board[y][x] (x,y) is any of the types passed in
- */
-function boardIs(bxy,...args){
-    for(let i=0;i<args.length;i++)
-        if(bxy.name===args[i].name)
-            return true;
-    return false;
+function trapObject(x,y,dir,delay,speed){
+    return {
+        x:x,
+        y:y,
+        dir:dir,
+        delay:delay,
+        count:0,
+        speed:speed,
+        fire(){
+            if(this.count>=this.delay){
+                this.count=0;
+                Dart(this.x,this.y,this.dir,this.speed);
+            }
+            else this.count++;
+        }
+    }
 }
 
 var curFloor=0,
-    board=setFloorAs(T.Start,1,1)
+    board=setFloorAs(Tn.Start(),1,1)
     /**Holds all the HTML elements */
 var HTML={}
     /**Holds the darts that fly across the screen */
@@ -156,13 +158,9 @@ var game={
         isNormal(){return game.difficulty.cur===Difficulty.Normal},
         isHard(){return game.difficulty.cur===Difficulty.Hard}
     },
-    /**If the timer gets incremented */
-    doCountTimer:true,
     lowTime:localStorage['lowTime']||'9999:99.99'
 }  
 
-/**Tells whether to use the set debug settings */
-var doDebug=false
 
 /**This holds all variables for debug testing */
 var debug={
@@ -231,15 +229,49 @@ function chance(n,d){return (d)?Math.floor(Math.random()*d)<n:chance(1,n)}
  * Only prints len letters of each part
  */
 function printArr(arr,len=5){
-    var str='\n'
+    var str='\n',
+        colors=[]
     arr.forEach(y=>{
         y.forEach(x=>{
-            if(x.name.length>=len) str+=x.name.substring(0,len)+'  ';
-            else str+=x.name+'.'.repeat(len-x.name.length)+'  '  
+            var toAdd=''
+            if(x.name.length>=len) toAdd=x.name.substring(0,len)+'  ';
+            else toAdd=x.name+'.'.repeat(len-x.name.length)+'  ' 
+            str+='%c'+toAdd
+            colors.push('color:'+x.color)
         })
         str+='\n'
     })
-    console.log(str);
+    console.log(str,...colors);   
+}
+
+/**Fancily prints the board in the console */
+function printBoard(){
+    var str='\n',
+        colors=[]
+
+    function sp(txt){
+        var ele=document.createElement('div')
+        ele.innerHTML=txt
+        return ele.innerHTML
+    }
+    
+    board.forEach(y=>{
+        y.forEach(x=>{
+            var toAdd='',overrideColor=false
+            if(x.is(Tn.start)){
+                toAdd=sp('&#9654;')+sp('&#9664;')
+                overrideColor='black'
+            }else if(x.is(Tn.trap)){
+                toAdd=(x.dir===Dir.Up)?'/\\':(x.dir===Dir.Down)?'\\/':(x.dir===Dir.Right)?'->':'<-'
+            }else{
+                toAdd=sp('&#9608;')+sp('&#9608;')
+            }
+            str+='%c'+toAdd
+            colors.push(`color:${(overrideColor)?overrideColor:x.color}`)
+        })
+        str+='\n'
+    })
+    console.log(str,...colors);   
 }
 
 /**Allows function to copy an array instead of editing the original. Just so I don't have to keep writing this */
@@ -308,6 +340,8 @@ var player={
     gay:false,
     /**The speed at which the player moves any direction */
     speed:5,
+    /**The initial speed of the player */
+    defaultSpeed:5,
     width:16,height:16,color:'steelblue',
     /**To be implemented. Protects from a single death */
     armor:0,
@@ -455,15 +489,15 @@ var player={
     /**Sets the players position on the map tiles */
     setPosition(x,y){
         if(x>=0&&x<board[0].length)
-            player.x=x*T.SIZE+(1/2)*T.SIZE-(player.width/2);
+            player.x=x*Tn.SIZE+(1/2)*Tn.SIZE-(player.width/2);
         if(y>=0&&y<board.length)
-            player.y=y*T.SIZE+(1/2)*T.SIZE-(player.height/2);
+            player.y=y*Tn.SIZE+(1/2)*Tn.SIZE-(player.height/2);
     },
     /**Puts the player onto the first start tile of the map */
     resetPosition(){
         for(var i=0;i<board.length;i++)
             for(var j=0;j<board[i].length;j++)
-                if(b(j,i).is(T.Start)){
+                if(b(j,i).is(Tn.start)){
                     player.setPosition(j,i);
                     return true; 
                 }
@@ -549,23 +583,23 @@ function checkTile(x,y){
         return false;
     //These are the tiles that you can walk on with nothing happening
     var cur=b(x,y)
-    if(cur.is(T.Path,T.Start,T.Hidden,T.NoPushRock))
+    if(cur.is(Tn.path,Tn.start,Tn.noRock))
         return true;
-    else if(cur.is(T.End)){
+    else if(cur.is(Tn.end)){
         spawnPoint=false
         nextFloor();
-    }else if(cur.is(T.Wall,T.Trap,T.Bars))
+    }else if(cur.is(Tn.wall,Tn.trap))
         return false
     //Keys and locks
-    else if(cur.is(T.Lock)){
+    else if(cur.is(Tn.lock)){
         if(player.keys>0){
             player.keys--;
-            b(x,y,T.Path)
+            b(x,y,Tn.Path())
             //Returns false so the player has a small pause when unlocking a lock
             return false;
         }else return false
     //Lava
-    }else if(cur.is(T.Lava)){
+    }else if(cur.is(Tn.lava)){
         if(!player.onLava){
             player.kill()
             if(debug.inv)
@@ -573,7 +607,7 @@ function checkTile(x,y){
             return (player.onLava=true);
         }
     //Rocks
-    }else if(cur.is(T.Rock)){
+    }else if(cur.is(Tn.rock)){
         var xCheck=x,yCheck=y;
         switch(player.dir){
             case Dir.Up:yCheck--;break;
@@ -582,17 +616,17 @@ function checkTile(x,y){
             case Dir.Right:xCheck++;break;
         }
         if(checkRockTile(xCheck,yCheck)){
-            if(b(xCheck,yCheck).is(T.Lava)){
-                b(xCheck,yCheck,T.Path)
-                b(x,y,T.Path)
+            if(b(xCheck,yCheck).is(Tn.lava)){
+                b(xCheck,yCheck,Tn.Path())
+                b(x,y,Tn.Path())
             }else{
-                b(xCheck,yCheck,T.Rock)
-                b(x,y,T.Path)
+                b(xCheck,yCheck,Tn.Rock())
+                b(x,y,Tn.Path())
             }
             return false;
         }
     //Portals
-    }else if(cur.name===T.Portal.name){
+    }else if(cur.is(Tn.portal)){
         if(!player.portal.hasTele||cur.id!==player.portal.id||cur.type!==player.portal.type){
             if(cur.type==='C'){
                 player.portal.type='C'
@@ -623,7 +657,7 @@ function getOtherPortal(obj){
         for(let j=0;j<board[0].length;j++){
             var temp=b(j,i);
             //If it's a portal too, isn't the same type, but has the same id, then return (x,y) as an array
-            if(temp.name===T.Portal.name&&temp.type!==obj.type&&temp.id===obj.id){
+            if(temp.is(Tn.portal)&&temp.type!==obj.type&&temp.id===obj.id){
                 return [j,i]
             }
         }
@@ -634,7 +668,7 @@ function checkOnPortal(){
     var p=getRounded(player);
     for(let i=0;i<p.length;i++){
         var x=p[i][0],y=p[i][1];
-        if(b(x,y).name===T.Portal.name)
+        if(b(x,y).is(Tn.portal))
             return;
     }
     player.portal.hasTele=false;
@@ -650,9 +684,9 @@ function getRounded(obj){
 }
 
 /**@returns the tile coord of the point */
-function roundPoint(x,y){return[Math.floor(x/T.SIZE),Math.floor(y/T.SIZE)];}
+function roundPoint(x,y){return[Math.floor(x/Tn.SIZE),Math.floor(y/Tn.SIZE)];}
 /**@returns the exact coord of the map point from the center of the tile */
-function unroundPoint(x,y,obj){return[x*T.SIZE+T.SIZE/2-((obj)?obj.width/2:0),y*T.SIZE+T.SIZE/2-((obj)?obj.height/2:0)]}
+function unroundPoint(x,y,obj){return[x*Tn.SIZE+Tn.SIZE/2-((obj)?obj.width/2:0),y*Tn.SIZE+Tn.SIZE/2-((obj)?obj.height/2:0)]}
 
 var startTime=Date.now(),
     curTime=Date.now(),
@@ -714,7 +748,7 @@ function updateDebugInfo(){
  * @param {number} x The x coord of the key
  * @param {number} y The y coord of the key
  */
-function Key(x,y,id=_nextPickupId()){
+function pKey(x,y,id=_nextId()){
     new Pickup(x,y,{width:15,height:20,color:'goldenrod',type:'key',onGrab:()=>{player.keys++},onRemove:()=>{player.keys=0},img:'key.png',id:id})
 }
 
@@ -722,13 +756,13 @@ function Key(x,y,id=_nextPickupId()){
  * Adds multiple keys at once 
  * @argument Points [x1,y1],[x2,y2],... 
  */
-function addKeys(){Array.from(arguments).forEach(key=>{Key(key[0],key[1])})}
+function addKeys(){Array.from(arguments).forEach(key=>{pKey(key[0],key[1])})}
 
 /**Kind of a constructor, but done without the new keyword */
 function Dart(x,y,dir,speed=4){
     darts.push({
         width:10,height:10,dir:dir,
-        x:x*T.SIZE+(1/2)*T.SIZE-5,y:(y*T.SIZE+(1/2)*T.SIZE-5),
+        x:x*Tn.SIZE+(1/2)*Tn.SIZE-5,y:(y*Tn.SIZE+(1/2)*Tn.SIZE-5),
         speed:speed,toRemove:false,hasTele:false,color:'green',
         checkCollide(){
             var p=getRounded(this)
@@ -758,7 +792,7 @@ function Dart(x,y,dir,speed=4){
             if(x<0||y<0||x>board[0].length-1||y>board.length-1)
                 return false;
             //Tiles that can be shot through. Come here for new tiles
-            if(boardIs(b(x,y),T.Path,T.Start,T.End,T.Lava,T.Trap,T.NoPushRock))
+            if(b(x,y).is(Tn.path,Tn.start,Tn.end,Tn.lava,Tn.trap,Tn.noRock))
                 return true;
             //Any that can't be shot through will return false here unless specified before
         }
@@ -783,51 +817,27 @@ function addAndMoveDarts(){
 }
 
 function trapInit(){
-    
     var i=0,j=0;
     board.forEach(y=>{
         j=0;
         y.forEach(x=>{
-            if(x.name===T.Trap.name){
-                traps.push({
-                    x:j,y:i,dir:x.dir,
-                    delay:x.delay,count:0,speed:x.speed,
-					fire(){
-                        if(this.count>=this.delay){
-                            this.count=0;
-                            Dart(this.x,this.y,this.dir);
-                        }
-                        else this.count++;
-					}
-				})
-            }
+            if(x.is(Tn.trap))
+                traps.push(trapObject(j,i,x.dir,x.delay,x.speed))
             j++
         })
         i++
     })
-    //Implementation of new system
-    /*
-    var i=0,j=0
-    board.forEach(y=>{
-        y.forEach(x=>{
-            if(x.is(tTrap())){
-                console.log('trap')
-                traps.push({
-                    x:x.x,y:x.y,dir:x.dir,delay:x.max,count:0,
-                    fire(){
-                        if(this.count>=this.delay){
-                            this.count=0;
-                            Dart(this.x,this.y,this.dir);
-                        }
-                        else this.count++;
-                    }
-                })
-            }
-            j++
+}
+
+function getAllTileOfType(...types){
+    var ret=[]
+    board.forEach(x=>{
+        x.forEach(y=>{
+            if(y.is(...types))
+                ret.push(y)
         })
-        j=0
-        i++
-    })*/
+    })
+    return ret
 }
 
 function checkRockTile(x,y){
@@ -835,7 +845,7 @@ function checkRockTile(x,y){
     if(x<0||y<0||x>board[0].length-1||y>board.length-1)
         return false;
     //Pushable on paths and lava only
-    if(boardIs(b(x,y),T.Path,T.Lava))
+    if(b(x,y).is(Tn.path,Tn.lava))
         return true;
 }
 
@@ -886,10 +896,10 @@ function eventHelper(event,bool){
 
 function drawAll(){
     var c=/**@type {HTMLCanvasElement}*/(document.getElementById("canvas"));
-    if(c.height!==board.length*T.SIZE)
-        c.height=board.length*T.SIZE
-    if(c.width!==board[0].length*T.SIZE)
-        c.width=board[0].length*T.SIZE
+    if(c.height!==board.length*Tn.SIZE)
+        c.height=board.length*Tn.SIZE
+    if(c.width!==board[0].length*Tn.SIZE)
+        c.width=board[0].length*Tn.SIZE
     
     //var ctx = c.getContext('2d')
     //Clear the board first
@@ -934,6 +944,15 @@ function drawAll(){
         ctx.stroke()
         ctx.closePath()
     }
+    function imgRotated(img,x,y,width,height,deg){
+        if(typeof deg==='string')
+            deg=dirToDeg(deg)
+        ctx.save()
+        ctx.translate(x+width/2,y+height/2)
+        ctx.rotate(Math.PI*deg/180)
+        ctx.drawImage(img,-width/2,-height/2,width,height)
+        ctx.restore()
+    }
     //Draw all the tiles first
     var by=0,bx=0;
     board.forEach(y=>{
@@ -941,32 +960,35 @@ function drawAll(){
         y.forEach(x=>{
             //Draw tiles first
             ctx.fillStyle=x.color;
-            rect(bx*T.SIZE,by*T.SIZE,T.SIZE,T.SIZE)
+            rect(bx*Tn.SIZE,by*Tn.SIZE,Tn.SIZE,Tn.SIZE)
             //Images go on top
             if(x.hasImage){
-                
-                //var img=document.createElement('img')
-                //img.src='gfx/'+x.hasImage;
                 ctx.shadowOffsetX=2
                 ctx.shadowOffsetY=2
-                ctx.drawImage(images.get(x.hasImage),bx*T.SIZE,by*T.SIZE,T.SIZE-1,T.SIZE-1)
+                //Any tile with a dir property can be drawn rotated
+                if(x.dir)
+                    imgRotated(images.get(x.hasImage),bx*Tn.SIZE,by*Tn.SIZE,Tn.SIZE-1,Tn.SIZE-1,dirToDeg(x.dir))
+                else
+                    ctx.drawImage(images.get(x.hasImage),bx*Tn.SIZE,by*Tn.SIZE,Tn.SIZE-1,Tn.SIZE-1)
                 ctx.shadowOffsetX=0
                 ctx.shadowOffsetY=0
-                ctx.strokeRect(bx*T.Size,by*T.SIZE,T.SIZE,T.SIZE)
+                ctx.strokeRect(bx*Tn.SIZE,by*Tn.SIZE,Tn.SIZE,Tn.SIZE)
             }   
             //Draw Portal ids
-            if(x.name===T.Portal.name&&(debug.showPortalId||debug.showCoords)){
+            if(x.is(Tn.portal)&&(debug.showPortalId||debug.showCoords)){
                 if(x.type==='A')
                     ctx.strokeStyle='blue'
-                else
+                else if(x.type==='B')
                     ctx.strokeStyle='brown'
-                ctx.strokeText(x.id,(bx+1)*T.SIZE-12,(by+1)*T.SIZE-3)
+                else if(x.type==='C')
+                    ctx.strokeStyle='forestgreen'
+                ctx.strokeText(x.id,(bx+1)*Tn.SIZE-12,(by+1)*Tn.SIZE-3)
                 ctx.strokeStyle='black'
             }
             //Draw coords on tiles
             if(debug.showCoords){
                 ctx.strokeStyle='rgba(10,10,10,0.5)'
-                ctx.strokeText("("+bx+','+by+')',bx*T.SIZE+2,by*T.SIZE+10)
+                ctx.strokeText("("+bx+','+by+')',bx*Tn.SIZE+2,by*Tn.SIZE+10)
                 ctx.strokeStyle='black'
             }
             bx++
@@ -985,9 +1007,7 @@ function drawAll(){
     enemies.forEach(enemy=>enemy.draw())
 
     darts.forEach(dart=>{
-        ctx.fillStyle=dart.color
-        circle(dart)
-
+        imgRotated(images.get('dart.png'),dart.x,dart.y,dart.width,dart.height,dirToDeg(dart.dir))
     })
 
     //Draw the shield
@@ -1008,10 +1028,19 @@ function drawAll(){
         ctx.fillStyle=player.color
         rect(player)
     }
-        
+    //imgRotated(images.get('portalA.png'),1,0,70,70)
     ctx.stroke();
-
+    ctx.closePath()
     circle(0,0,0)
+}
+
+function dirToDeg(dir){
+    switch(dir){
+        case Dir.Right:return 90;
+        case Dir.Left:return -90;
+        case Dir.Down:return 180;
+        case Dir.Up:return 0;
+    }
 }
 
 if(!doDebug){
@@ -1042,7 +1071,7 @@ function animate(){
     drawAll()
 }
 boardInit();
-var move=setInterval(player.move,60);
+var move=setInterval(()=>{player.move()},60);
 animate()
 drawAll()
 
@@ -1057,3 +1086,13 @@ function reset(isHard=false){
         loadFloor(0)
 }
 var perf1=0,perf0=0
+//Pausing
+window.addEventListener('blur',(event)=>{
+    setMovement(false)
+    Clock.pause()
+})
+//Unpausing
+window.addEventListener('focus',(event)=>{
+    setMovement(true)
+    Clock.resume()
+})
