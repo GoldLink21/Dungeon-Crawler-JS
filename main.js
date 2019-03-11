@@ -6,7 +6,12 @@
  * Also thanks to all the friends of mine who helped
  * without even knowing it by play testing all my levels
  */
-const version='0.1.0'
+
+/**
+ * Uses x.y.z where z is small changes or bugfixes, y is new levels or big 
+ * changes, and x will likely only mark the official release when it hits 1
+ */
+const version='0.2.0'
 
 /**Tells whether to use the set debug settings */
 var doDebug=false
@@ -15,8 +20,12 @@ var doDebug=false
 const Dir={Up:'up',Down:'down',Left:'left',Right:'right'}
 
 if(localStorage['version']!==version){
+    var points=localStorage['version'].split('.'),
+        cur=version.split('.')
+    //Clear time if has a different update with bigger fixes or new levels
+    if(points[0]!==cur[0]||points[1]!==cur[1])
+        localStorage['lowTime']='9999:99.99'
     localStorage['version']=version
-    localStorage['lowTime']='9999:99.99'
 }
 
 /**Enum for difficulty */
@@ -39,7 +48,16 @@ var spawnPoint=false
 var goldSpawnFloor=false
 
 function Tile(name,color,hasImage,otherProps){
-    this.name=name;this.color=color;this.hasImage=hasImage
+    this.name=name;
+    //Allows many colors to be passed in to let randomization to happen
+    if(Array.isArray(color))
+        this.color=rndArrEle(color)
+    else
+        this.color=color
+    if(Array.isArray(hasImage))
+        this.hasImage=rndArrEle(hasImage)
+    else
+        this.hasImage=hasImage
     this.size=35;this.width=this.size;this.height=this.size
     this.is=function(...others){
         for(let i=0;i<others.length;i++){
@@ -50,29 +68,65 @@ function Tile(name,color,hasImage,otherProps){
         }
         return false
     }
+    this.subIs=function(...others){
+        for(let i=0;i<others.length;i++){
+            if(typeof others[i]==='string'){
+                if(this.subName&&others[i]===this.subName)
+                    return true
+            }if(this.subName&&this.subName===others[i].subName){
+                return true
+            }
+        }
+        return false
+    }
     Object.assign(this,otherProps)
 }
 function subTile(tile,subName,otherProps){
     return Object.assign(tile,{subName:subName},otherProps)
 }
 
+function rndArrEle(arr){
+    return arr[Math.floor(Math.random()*arr.length)]
+}
+
+function rndCol(rs=[0,255],gs=[0,255],bs=[0,255]){
+    return `rgb(${(Array.isArray(rs))?rndArrEle(aR(rs[0],rs[1])):rs},`+
+        `${(Array.isArray(gs))?rndArrEle(aR(gs[0],gs[1])):gs},${(Array.isArray(bs))?rndArrEle(aR(bs[0],bs[1])):bs})`
+}
+
+//Fancy Tile and subTile system which simplifies code a fair bit
 var Tn={
     //These are all tiles with distinct properties
-    Wall(color='rgb(78,78,78)',hasImage){return new Tile('wall',color,hasImage)},
-    Path(color='rgb(165,165,165)',hasImage){return new Tile('path',color,hasImage)},
-    Lava(color='maroon',hasImage){return new Tile('lava',color,hasImage)},
-    Lock(color='rgb(165,165,165)',hasImage='lock.png'){return new Tile('lock',color,hasImage)},
-    Start(color='white',hasImage){return new Tile('start',color,hasImage)},
-    End(color='gold',hasImage){return new Tile('end',color,hasImage)},
-    Rock(color='rgb(165,165,165)',hasImage='rock.png'){return new Tile('rock',color,hasImage)},
-    NoRock(color='rgb(135,135,135)',hasImage){return new Tile('noRock',color,hasImage)},
-    Trap(dir=Dir.Up,delay=30,speed,color='peru',hasImage='trap.png'){return new Tile('trap',color,hasImage,{speed:speed,dir:dir,delay:delay})},
-    Portal(type,id,color='rgb(165,165,165)',hasImage='portal'+type+'.png'){return new Tile('portal',color,hasImage,{id:id,type:type})},
-    OneWayPortal(x,y,color='rgb(165,165,165)',hasImage='portalC.png'){return subTile(Tn.Portal('C',-1,color,hasImage),'oneWayPortal',{x:x,y:y})},//new Tile('portal',color,hasImage,{type:'C',x:x,y:y})},
-    //These are predefined subtypes of other type of tiles which do nothing different
+    Wall(color='rgb(78,78,78)',hasImage)
+        {return new Tile('wall',color,hasImage)},
+    Path(color=rndCol([160,170],[160,170],[160,170]),hasImage)
+        {return new Tile('path',color,hasImage)},
+    Lava(color='maroon',hasImage)
+        {return new Tile('lava',color,hasImage)},
+    Lock(color='rgb(165,165,165)',hasImage='lock.png')
+        {return new Tile('lock',color,hasImage)},
+    Start(color='white',hasImage)
+        {return new Tile('start',color,hasImage)},
+    End(color='gold',hasImage)
+        {return new Tile('end',color,hasImage)},
+    Rock(color='rgb(165,165,165)',hasImage='rock.png')
+        {return new Tile('rock',color,hasImage)},
+    NoRock(color='rgb(135,135,135)',hasImage)
+        {return new Tile('noRock',color,hasImage)},
+    Trap(dir=Dir.Up,delay=30,speed,startVal=0,color='peru',hasImage='trap.png')
+        {return new Tile('trap',color,hasImage,{speed:speed,dir:dir,delay:delay,startVal:startVal})},
+    Portal(type,id,color='rgb(165,165,165)',hasImage='portal'+type+'.png')
+        {return new Tile('portal',color,hasImage,{id:id,type:type})},
+    OneWayPortal(x,y,color='rgb(165,165,165)',hasImage=['portalA.png','portalB.png'])
+        {return subTile(Tn.Portal('C',-1,color,hasImage),'oneWayPortal',{x:x,y:y})},
+    RockSwitch(onActivate=()=>{},color='purple',hasImage)
+        {return new Tile('rockSwitch',color,hasImage,{onActivate:onActivate})},
+    //These are predefined subtypes of other type of tiles which do nothing different. They have no //#endregion
+    //Params because they are the same as just passing in those params on other objects
     Bars(){return subTile(Tn.Wall(undefined,'bars.png'),'bars')},
     Hidden(){return subTile(Tn.Path('rgb(65,65,65)'),'hidden')},
-    FakeLava(){return subTile(Tn.Path('#600000'),'fakeLava')}
+    FakeLava(){return subTile(Tn.Path('#600000'),'fakeLava')},
+    RockRandom(){return subTile(Tn.Rock(undefined,['rock.png','rock1.png']))},
 }
 //Makes lowercase properties of everything for the is function
 for(var type in Tn){
@@ -101,29 +155,28 @@ function b(x,y,type){
         }
         //Allows traps to be added dynamically
         if(type.is(Tn.trap)){
-            traps.push(trapObject(x,y,type.dir,type.delay,type.speed))
+            traps.push(new TrapObj(x,y,type.dir,type.delay,type.speed,type.startVal))
         }
         //Assigns the properies of the type to a new object so they don't all reference the same object
         board[y][x]=type;
     }else
         return board[y][x];
 }
-
-function trapObject(x,y,dir,delay,speed){
-    return {
-        x:x,
-        y:y,
-        dir:dir,
-        delay:delay,
-        count:0,
-        speed:speed,
-        fire(){
-            if(this.count>=this.delay){
-                this.count=0;
-                Dart(this.x,this.y,this.dir,this.speed);
-            }
-            else this.count++;
-        }
+class TrapObj{
+    constructor(x,y,dir,delay,speed,startVal=0){
+        this.x=x
+        this.y=y
+        this.dir=dir
+        this.delay=delay
+        this.speed=speed
+        var t=this
+        this.counter=new Counter(this.delay,function(){
+            Dart(t.x,t.y,t.dir,t.speed)
+        })
+        this.counter.cur=startVal
+    }
+    fire(){
+        this.counter.count()
     }
 }
 
@@ -171,7 +224,7 @@ var debug={
     /**Tells if to change the first floor to the value of debug.firstFloor */
     changeFirstFloor:true,
     /**The floor to change the first floor to */
-    firstFloor:16,
+    firstFloor:0,
     /**Infinite Keys */
     infKeys:false,
     /**Tells if you can hit / to load the next floor */
@@ -302,17 +355,29 @@ function boardInit(){
     addElement('time',HTML.midbar)
     addElement('help',HTML.midbar);
 
+    addElement('holder',HTML.board)
+
     var canvas=document.createElement('canvas')
     canvas.id='canvas'
-    HTML.board.appendChild(canvas)
+    HTML.holder.appendChild(canvas)
     HTML.canvas=canvas
     ctx=canvas.getContext('2d')
+
+    var tell=addElement('tell',HTML.holder)
+    tell.innerHTML="This is the tell<br>"
+    var tellBtn=document.createElement('button')
+    tellBtn.innerHTML='Okay'
+    tell.appendChild(tellBtn)
+    //tell.style.display='none'
+    tell.style.marginTop=HTML.canvas.style.marginTop
+
     addElement('debug',HTML.board)
 
     //Adds an event for if you have click teleporting active
     canvas.addEventListener('click',(event)=>{
         if(debug.clickTele){
-            var rp=roundPoint(event.x-canvas.offsetLeft,event.y-canvas.offsetTop)
+            var rect=canvas.getBoundingClientRect()
+            var rp=roundPoint(event.x-rect.left,event.y-rect.top)
             player.setPosition(rp[0],rp[1])
         }
     })
@@ -334,6 +399,7 @@ var player={
     x:0,y:0,dir:Dir.Up,
     /**The player does not show when this is true */
     hidden:false,onLava:false,keys:0,
+    lastDeathSource:'none',
     /**Determines if the player can use their shield */
     hasShield:false,
     /**Inside joke */
@@ -343,7 +409,7 @@ var player={
     /**The initial speed of the player */
     defaultSpeed:5,
     width:16,height:16,color:'steelblue',
-    /**To be implemented. Protects from a single death */
+    /**To be implemented. Protects from a single death. Useless against lava */
     armor:0,
     /**All the info pertaining to the portal teleportation */
     portal:{
@@ -488,6 +554,8 @@ var player={
     },
     /**Sets the players position on the map tiles */
     setPosition(x,y){
+        if(x<0||x>=board[0].length||y<0||y>=board.length)
+            return false
         if(x>=0&&x<board[0].length)
             player.x=x*Tn.SIZE+(1/2)*Tn.SIZE-(player.width/2);
         if(y>=0&&y<board.length)
@@ -543,7 +611,7 @@ var player={
         }
     },
     /**This is when the player dies, obviously*/
-    kill(){
+    kill(source){
         player.hurt.isHurt=true
         //Not invincible and don't have armor
         if(!debug.inv&&player.armor<=0){
@@ -562,9 +630,14 @@ var player={
                     break;
             }
             game.deaths++;
+            player.lastDeathSource=source
             player.shield.active=false
         }if(player.armor>0&&!debug.inv){
-            player.armor--
+            if(source===Tn.lava){
+                player.armor=0
+                player.kill(source)
+            }else
+                player.armor--
         }
     }
 };
@@ -596,12 +669,15 @@ function checkTile(x,y){
             player.keys--;
             b(x,y,Tn.Path())
             //Returns false so the player has a small pause when unlocking a lock
+
+            checkLocksOnFloor7()
+
             return false;
         }else return false
     //Lava
     }else if(cur.is(Tn.lava)){
         if(!player.onLava){
-            player.kill()
+            player.kill(Tn.lava)
             if(debug.inv)
                 return true
             return (player.onLava=true);
@@ -616,11 +692,16 @@ function checkTile(x,y){
             case Dir.Right:xCheck++;break;
         }
         if(checkRockTile(xCheck,yCheck)){
-            if(b(xCheck,yCheck).is(Tn.lava)){
+            var cur=b(xCheck,yCheck)
+            if(cur.is(Tn.lava)){
+                b(xCheck,yCheck,Tn.Path())
+                b(x,y,Tn.Path())
+            }else if(cur.is(Tn.rockSwitch)){
+                cur.onActivate()
                 b(xCheck,yCheck,Tn.Path())
                 b(x,y,Tn.Path())
             }else{
-                b(xCheck,yCheck,Tn.Rock())
+                b(xCheck,yCheck,Tn.Rock(b(x,y).color,b(x,y).hasImage))
                 b(x,y,Tn.Path())
             }
             return false;
@@ -686,7 +767,30 @@ function getRounded(obj){
 /**@returns the tile coord of the point */
 function roundPoint(x,y){return[Math.floor(x/Tn.SIZE),Math.floor(y/Tn.SIZE)];}
 /**@returns the exact coord of the map point from the center of the tile */
-function unroundPoint(x,y,obj){return[x*Tn.SIZE+Tn.SIZE/2-((obj)?obj.width/2:0),y*Tn.SIZE+Tn.SIZE/2-((obj)?obj.height/2:0)]}
+function unroundPoint(x,y,obj){
+    return[x*Tn.SIZE+Tn.SIZE/2-((obj)?obj.width/2:0),y*Tn.SIZE+Tn.SIZE/2-((obj)?obj.height/2:0)]
+}
+
+function checkLocksOnFloor7(){
+    if(curFloor===7){
+        for(let i=1;i<board.length-1;i++){
+            for(let j=1;j<board[i].length-1;j++){
+                if(b(j,i).is(Tn.lock)){
+                    return
+                }
+            }
+        }
+        alert('Good job! You cleared all the tiles')
+        player.canMove.down=false
+        player.canMove.left=false
+        player.canMove.up=false
+        player.canMove.right=false
+        for(var part of player.canMove){
+            
+        }
+    }
+    
+}
 
 var startTime=Date.now(),
     curTime=Date.now(),
@@ -705,7 +809,7 @@ function updateInfo(){
 
 
     //Holds the counting feature
-    str='Time: '+Clock.toString()+'<br>Fastest Time: '+game.lowTime
+    str='Time: '+Clock1.toString()+'<br>Fastest Time: '+game.lowTime
     
     //Only do it if there's something new to change
     if(HTML.time.innerHTML!==str)
@@ -731,7 +835,6 @@ var _debugStrFunc=[
     ()=>{return `Player canBlock: ${player.block.canBlock}`},
     ()=>{return `CurFloor Deaths: ${game.curFloorDeaths}`},
     ()=>{return `Player Armor: ${player.armor}`},
-    ()=>{return `Perf. Test: ${perf0-perf1}`}
 ]
 /**This new system for debug info allows active altering of the debug window */
 function updateDebugInfo(){
@@ -749,7 +852,8 @@ function updateDebugInfo(){
  * @param {number} y The y coord of the key
  */
 function pKey(x,y,id=_nextId()){
-    new Pickup(x,y,{width:15,height:20,color:'goldenrod',type:'key',onGrab:()=>{player.keys++},onRemove:()=>{player.keys=0},img:'key.png',id:id})
+    new Pickup(x,y,{width:15,height:20,color:'goldenrod',type:'key',onGrab:()=>
+        {player.keys++},onRemove:()=>{player.keys=0},img:'key.png',id:id})
 }
 
 /**
@@ -772,7 +876,7 @@ function Dart(x,y,dir,speed=4){
                     return !(this.toRemove=true)
                 }
                 if(isCollide(player,this)){
-                    player.kill()
+                    player.kill('dart')
                     return!(this.toRemove=true)
                 }
                 if(!this.checkTile(p[i][0],p[i][1]))
@@ -822,7 +926,7 @@ function trapInit(){
         j=0;
         y.forEach(x=>{
             if(x.is(Tn.trap))
-                traps.push(trapObject(j,i,x.dir,x.delay,x.speed))
+                traps.push(new TrapObj(j,i,x.dir,x.delay,x.speed,x.startVal))
             j++
         })
         i++
@@ -845,53 +949,63 @@ function checkRockTile(x,y){
     if(x<0||y<0||x>board[0].length-1||y>board.length-1)
         return false;
     //Pushable on paths and lava only
-    if(b(x,y).is(Tn.path,Tn.lava))
+    if(b(x,y).is(Tn.path,Tn.lava,Tn.rockSwitch))
         return true;
 }
 
 document.addEventListener('keydown',(event)=>{
-    eventHelper(event,true)
-    if(event.key===' '&&player.block.canBlock&&player.hasShield){
-        player.block.isBlock=true
-        player.block.canBlock=false;
-        player.shield.block()
+    if(!consoleFocused){
+        eventHelper(event,true)
+        if(event.key===' '&&player.block.canBlock&&player.hasShield){
+            player.block.isBlock=true
+            player.block.canBlock=false;
+            player.shield.block()
+        }
     }
 });
 document.addEventListener('keyup',(event)=>{
-    eventHelper(event,false);
-    //Reload the current floor
-    if(event.key==='r')
-        loadFloor(curFloor);
-    //Go up a floor
-    if(event.key==='/'&&debug.nextFloor)
-        nextFloor()
-    //Go back a floor
-    if(event.key==='.'&&debug.nextFloor)
-        loadFloor((curFloor-1>=0)?curFloor-1:curFloor)
-    if(event.key==="Enter"&&game.onEnd){
-            loadFloor(0)
-            game.onEnd=false;
-            player.hidden=false
-            game.loops++;
-            localStorage['gameLoops']=game.loops|0
-            game.deaths=0;
-    }if(event.key==='l'&&debug.doQuickLoad)
-        loadFloor(debug.quickLoad)
-    if(event.key==='c'&&debug.canShowCoords)
-        debug.showCoords^=true;
-    if(event.key==='i'&&doDebug)
-        debug.showInfo^=true
-
+    if(!consoleFocused){
+        eventHelper(event,false);
+        //Reload the current floor
+        if(event.key==='r'){
+            loadFloor(curFloor);
+        //Go up a floor
+        }if(event.key==='/'&&debug.nextFloor){
+            spawnPoint=false
+            nextFloor()
+        //Go back a floor
+        }if(event.key==='.'&&debug.nextFloor){
+            spawnPoint=false
+            loadFloor((curFloor-1>=0)?curFloor-1:curFloor)
+        }if(event.key==="Enter"&&game.onEnd){
+                loadFloor(0)
+                game.onEnd=false;
+                player.hidden=false
+                game.loops++;
+                localStorage['gameLoops']=game.loops|0
+                game.deaths=0;
+        }if(event.key==='l'&&debug.doQuickLoad){
+            loadFloor(debug.quickLoad)
+        }if(event.key==='c'&&debug.canShowCoords){
+            debug.showCoords^=true;
+        }if(event.key==='i'&&doDebug){
+            debug.showInfo^=true
+        }if(event.key==='`'){
+            toggleConsole()
+        }
+    }
 })
 
 /**Helper function for adding movement event listeners to remove repetition */
 function eventHelper(event,bool){
-    switch(event.key){
-        case'ArrowUp':case'w':player.canMove.up=bool;break;
-        case'ArrowDown':case's':player.canMove.down=bool;break;
-        case'ArrowRight':case'd':player.canMove.right=bool;break;
-        case'ArrowLeft':case'a':player.canMove.left=bool;break;
-    }
+    if(['ArrowUp','w','W'].includes(event.key))
+        player.canMove.up=bool
+    else if(['ArrowDown','s','S'].includes(event.key))
+        player.canMove.down=bool
+    else if(['ArrowRight','d','D'].includes(event.key))
+        player.canMove.right=bool
+    else if(['ArrowLeft','a','A'].includes(event.key))
+        player.canMove.left=bool
 }
 
 function drawAll(){
@@ -1059,11 +1173,14 @@ if(!doDebug){
 var move=false
 function setMovement(bool){
     if(bool){
-        if(!move)
+        if(!move){
             move=setInterval(player.move,60)
+            Clock1.resume()
+        }
     }else{
         clearInterval(move)
         move=false
+        Clock1.pause()
     }
 }
 function animate(){
@@ -1085,14 +1202,102 @@ function reset(isHard=false){
     }else
         loadFloor(0)
 }
-var perf1=0,perf0=0
-//Pausing
-window.addEventListener('blur',(event)=>{
+
+var ec=new Merged(HTML.midbar,debug.externalConsole)
+var consoleFocused=false
+
+ec.addCommand('tell',(...strs)=>{tell(strs.join(' '))},'t')
+ec.addCommand('godmode',()=>{
+    ec.setOutput('Set Invincibility to '+(debug.inv=!debug.inv))
+},'gm',0)
+ec.addCommand('keys',(n)=>{
+    if(!isNaN(n)){
+        ec.setOutput('Added '+(player.keys+=Number(n))+' keys to player')
+    }else
+        ec.error('Invalid Number: '+n)
+},'k',1)
+ec.addCommand('armor',(n)=>{
+    (!isNaN(n))?ec.setOutput('Added '+((player.armor+=Number(n)))+' armor to player'):
+        ec.error('Invalid Number: '+n)
+    
+},'ar',1)
+ec.addCommand('checkpoint',()=>{
+    var rp=roundPoint(player.x,player.y)
+    pCheckPointPostLoad(rp[0],rp[1])
+},'cp')
+ec.addCommand('teleport',(x,y)=>{
+    (player.setPosition(x,y)===false)?ec.error("Invalid positioning of "+x+','+y):ec.setOutput('Teleported to '+x+','+y)
+},'tp',2)
+ec.addCommand('togglecoords',()=>{ec.setOutput('Set show coords to '+(debug.showCoords=!debug.showCoords))},'tc',0)
+ec.addCommand('loops',(n)=>{
+    (!isNaN(n))?ec.setOutput('Set game loops to '+(game.loops=Number(n))):ec.error('Invalid Number: '+n)
+},'loop',1)
+ec.addCommand('floor',(n)=>{loadFloor(n);ec.setOutput('Loaded Floor '+n)},'fl',1)
+ec.addCommand('nextfloor',()=>{nextFloor();ec.setOutput('Loaded Next Floor')},'nf',0)
+
+document.addEventListener('consoleFocus',()=>{consoleFocused=true})
+document.addEventListener('consoleBlur',()=>{consoleFocused=false})
+
+function toggleConsole(){(ec.isVisible)?ec.hide():ec.show()}
+
+function tell(str='NoMesages',btnStr='Okay',onclickExtra=()=>{}){
     setMovement(false)
-    Clock.pause()
-})
-//Unpausing
-window.addEventListener('focus',(event)=>{
-    setMovement(true)
-    Clock.resume()
-})
+
+    /**@type {HTMLDivElement} */
+    var t=HTML.tell
+    
+    t.innerHTML=str
+    t.appendChild(document.createElement('br'))
+    var btn=document.createElement('button')
+    btn.innerHTML=btnStr
+    btn.addEventListener('click',()=>{
+        t.style.display='none'
+        setMovement(true)
+        onclickExtra()
+    })
+    t.appendChild(btn)
+
+    t.style.display='block'
+}
+
+function dialogue(...strs){
+    var funcs=[]
+    for(let i=0;i<strs.length;i++)
+        funcs.push(()=>{tell(strs[i],(i===strs.length-1)?undefined:'Next',funcs[i+1])})   
+    tell(strs[0],'Next',funcs[1])
+}
+
+function check(str='NoMesages',btnYes='Okay',btnNo='No Way',onclickYes=()=>{},onclickNo=()=>{}){
+    setMovement(false)
+
+    /**@type {HTMLDivElement} */
+    var t=HTML.tell
+    
+    t.innerHTML=str
+    t.appendChild(document.createElement('br'))
+    var btnAcc=document.createElement('button')
+    btnAcc.innerHTML=btnYes
+    btnAcc.addEventListener('click',()=>{
+        t.style.display='none'
+        setMovement(true)
+        onclickYes()
+    })
+
+    t.appendChild(btnAcc)
+
+    var btnDec=document.createElement('button')
+    btnDec.innerHTML=btnNo
+    btnDec.addEventListener('click',()=>{
+        t.style.display='none'
+        setMovement(true)
+        onclickNo()
+    })
+
+    t.style.display='block'
+    /**@type {DOMRect} */
+    
+    t.style.marginTop='10px'
+    t.style.marginLeft='10px'
+    t.style.marginRight='10px'
+}
+toggleConsole()

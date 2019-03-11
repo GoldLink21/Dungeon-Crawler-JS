@@ -36,8 +36,8 @@ function loadFloor(floor){
         if(!game.doCountTimer)
             game.doCountTimer=true
         if(floor===0){
-            Clock.milliseconds=0
-            Clock.resume()
+            Clock1.milliseconds=0
+            Clock1.resume()
             spawnPoint=false
             goldSpawnFloor=false
         }
@@ -69,15 +69,15 @@ function nextFloor(){
     if(loadFloor(++curFloor)){
         player.hidden=true;
         player.setPosition(0,0)
-        board=setFloorAs(Tn.Path);
+        board=setFloorAs(Tn.PathRandom);
         game.onEnd=true;
         setHelpInfo("Press Enter to begin anew");
         game.doCountTimer=false
-        if(Clock.milliseconds<Clock.unParse(game.lowTime)){
-            game.lowTime=Clock.toString()
+        if(Clock1.milliseconds<Clock.unParse(game.lowTime)){
+            game.lowTime=Clock1.toString()
             localStorage['lowTime']=game.lowTime
         }
-        Clock.pause()
+        Clock1.pause()
 
     }
 }
@@ -96,6 +96,38 @@ function setFloorAs(type,width=9,height=9){
             tile(temp,j,i,type)
     }
     return temp;
+}
+
+function keyPositionShift(startLoop,xy,startPos,endPos,constant,helpInfoChange,helpInfoMax){
+    var d
+    if(startPos<endPos){
+        d=(game.loops-startLoop+1)+startPos
+        if(d<startPos){
+            d=startPos
+        }else if(d>endPos){
+            d=endPos
+            if(helpInfoMax)
+                setHelpInfo(helpInfoMax)
+        }else
+            if(helpInfoChange)
+                setHelpInfo(helpInfoChange)
+    }else{
+        d=-(game.loops-startLoop+1)+startPos
+        if(d<endPos){
+            d=endPos
+            if(helpInfoMax)
+                setHelpInfo(helpInfoMax)
+        }else if(d>startPos)
+            d=startPos
+        else
+            if(helpInfoChange)
+                setHelpInfo(helpInfoChange)
+    }
+    if(xy==='x'){
+        pKey(d,constant)
+    }else if(xy==='y'){
+        pKey(constant,d)
+    }
 }
 
 /**
@@ -152,7 +184,7 @@ function tCopy(type){
  * @example tile(temp,0,[1,2,3],Tn.Wall) //sets (0,1) (0,2) (0,3) to Tn.Wall
  * @example tile(temp,[1,2],[3,4],Tn.Lava) // sets (1,3) && (2,4) to Tn.Lava
  */
-function tile(arr=[[]],x=[],y=[],type=Tn.Path()){
+function tile(arr=[[]],x=[],y=[],type=Tn.Path){
     if(Array.isArray(x)){
   	    if(Array.isArray(y))
             for(let i=0;i<x.length;i++)
@@ -186,6 +218,11 @@ function SaE(arr,start,end){
 function fSetup(arr,start,end,helpInfo){
     SaE(arr,start,end)
     setHelpInfo(helpInfo)
+}
+
+function tellL(str,btnStr){
+    if(Number(game.loops)==0)
+        tell(str,btnStr)
 }
 
 /**Always increment after pairing multiple portals */
@@ -228,9 +265,28 @@ var floorFunc={
         tile(temp,[5,6,7],2);
         tile(temp,1,5,Tn.Wall);
         tile(temp,[2,4,4,6],[5,5,3,3],Tn.Lava);
-        tile(temp,[0,2,4],[6,4,2],Tn.Trap(Dir.Right,55));
+        tile(temp,[0,2,4],[6,4,2],Tn.Trap(Dir.Right,55,undefined,45));
         SaE(temp,[1,7],[7,1]);
-        setHelpInfo('Use arrow keys or wasd to move. Avoid the lava tiles and the darts. The goal is to get to the gold tile.');
+
+        //Game loops past 15 allow individual tiles from the top left to bottom right 
+        //to become paths, one loop at a time. Mostly asthetic
+        var lx=0,ly=0
+        for(let i=game.loops-15;i>0;i--){
+            if(!temp[ly][lx].is(Tn.start,Tn.end))
+                temp[ly][lx]=Tn.Path()
+            if(++lx>=temp[0].length){
+                lx=0
+                ly++
+            }
+            if(ly>=temp.length)
+                break
+        }
+        if(Number(game.loops)==0){
+            setTimeout(()=>{
+                tellL('Use arrow keys or wasd to move. Avoid the lava tiles and the darts. The goal is to get to the gold tile.')
+            },100) 
+        }
+        setHelpInfo();
         return temp;
     },
     1:function(){
@@ -267,15 +323,8 @@ var floorFunc={
         tile(temp,5,[4,6],Tn.Trap(Dir.Left,25))
         tile(temp,[2,6],0,Tn.Trap(Dir.Down,25))
         tile(temp,[2,6],2,Tn.Trap(Dir.Up,25))
-
-        if(game.loops>=5){
-            addKeys([4,2]);
-            setHelpInfo("Let's move that key a little closer")
-        }else{
-            addKeys([4,7]);
-            setHelpInfo("Grab the key to open the locked tile")
-        }
-        
+        keyPositionShift(5,'y',7,2,4)
+        setHelpInfo("Grab the key to open the locked tile")
         SaE(temp,[1,1],[7,1]);
         
         return temp;
@@ -291,13 +340,10 @@ var floorFunc={
         tile(temp,2,3,Tn.Trap(Dir.Down,45))
         tile(temp,2,5,Tn.Trap(Dir.Up,45));
         SaE(temp,[4,4],[8,4])
-        if(game.loops>=5){
-            addKeys([4,3],[3,4],[4,5])
-            setHelpInfo("And these one's too")
-        }else{
-            addKeys([4,1],[4,7],[1,4]);
-            setHelpInfo()
-        }
+        keyPositionShift(5,'y',1,3,4)
+        keyPositionShift(5,'y',7,5,4)
+        keyPositionShift(5,'x',1,3,4)
+        setHelpInfo()
         return temp;
     },
     4:function(){
@@ -309,18 +355,19 @@ var floorFunc={
         //I use the chance function to add some variation in the level design
         if(chance(1,2)){
             tile(temp,[2,4,6],1,Tn.Lock)
-            addKeys([1,7],[3,7],[5,7])
+            for(let i=1;i<=5;i+=2)
+                keyPositionShift(5,'y',7,2,i,'Sliding Up','As close as possible')
             SaE(temp,[1,1],[7,7])
         }else{
             tile(temp,[2,4,6],7,Tn.Lock)
-            addKeys([1,1],[3,1],[5,1])
+            for(let i=1;i<=5;i+=2)
+                keyPositionShift(5,'y',1,6,i,'Sliding Down','As close as possible')
             SaE(temp,[1,7],[7,1])
         }
         if(chance(1,2))
             tile(temp,8,[2,4,6],Tn.Trap(Dir.Left,40))
         else
             tile(temp,0,[2,4,6],Tn.Trap(Dir.Right,40))
-        setHelpInfo()
         return temp;
     },
     5:function(){
@@ -356,26 +403,26 @@ var floorFunc={
         if(game.loops>=5)
             setHelpInfo("Theres actually a secret, easier path in this level that's hidden")
         else
-            setHelpInfo("The darts are pretty small. Maybe you can use that to your advantage")
+            tellL("The darts are pretty small. Maybe you can use that to your advantage")
         return temp;
     },
     7:function(){
         let temp=setFloorAs(Tn.Lock)
         border(temp,Tn.Wall);
-        //The chance here determines if the player will start with all needed
+        //The player will start with all needed at a certain number of loops
         //Keys or need to collect as they go, in favor of the former
-        //If you've done 5 or more loops, you get the keys every time
-        if(chance(1,15)||game.loops>=5)
+        if(game.loops>=5)
             player.keys=47;
         else
-            for(let i=1;i<8;i++)for(let j=1;j<8;j++)addKeys([i,j])
-    
+            for(let i=1;i<8;i++)
+                for(let j=1;j<8;j++)
+                    pKey(i,j)
         tile(temp,0,aR(2,6),Tn.Trap(Dir.Right,35));
         tile(temp,8,aR(2,6),Tn.Trap(Dir.Left,35));
         tile(temp,aR(2,6),0,Tn.Trap(Dir.Down,35));
         tile(temp,aR(2,6),8,Tn.Trap(Dir.Up,35));
         SaE(temp,[7,7],[1,1])
-        setHelpInfo("You can also hit r to restart the current floor")
+        tellL("You can also hit r to restart the current floor")
         if(game.loops>=5)
             setHelpInfo('As a thanks for playing so much, have the random keys every time!')
         return temp;
@@ -396,7 +443,7 @@ var floorFunc={
             setHelpInfo("Here, have a shortcut")
             tile(temp,2,2,Tn.Path)
         }else{
-            setHelpInfo('Walk into the rock to push it to the next tile. It can fill in lava pits so you can '+
+            tellL('Walk into the rock to push it to the next tile. It can fill in lava pits so you can '+
             "walk over them. You can't push the rock on the slightly darker tile, but you can walk there")
         }
         return temp;
@@ -419,7 +466,7 @@ var floorFunc={
             temp[7][1].id=3
             setHelpInfo("Here, let's get you past these slow portals")
         }else
-            setHelpInfo('I wonder what those new tiles are?')
+            tellL('I wonder what those new tiles are? Maybe you could take a step in?')
         return temp;
     },
     //#endregion
@@ -455,15 +502,28 @@ var floorFunc={
     11:function(){
         var temp=setFloorAs(Tn.Path,7,10)
         border(temp,Tn.NoRock)
-        tile(temp,6,[8,7,6],Tn.Lava)
+        SaE(temp,[0,0],[6,9])
         tile(temp,5,[9,8,7],Tn.Wall)
         tile(temp,4,[8,7],Tn.NoRock)
         tile(temp,5,0,Tn.Trap(Dir.Down,55))
         tile(temp,3,9,Tn.Trap(Dir.Up,55))
         tile(temp,0,5,Tn.Trap(Dir.Right,55))
-        tile(temp,[3,5,1],[8,1,5],Tn.Rock)
-        SaE(temp,[0,0],[6,9])
-        setHelpInfo("I think this level rocks")
+        tile(temp,6,[6,7,8],Tn.Path())
+        if(game.loops>=15){
+            setHelpInfo('I always thought this was an annoying level')
+        }else if(game.loops>=10){
+            tile(temp,[3],[8],Tn.Rock)
+            tile(temp,6,[8],Tn.Lava)
+            setHelpInfo("Two down, one to go. Killed two stones with one bird")
+        }else if(game.loops>=5){
+            tile(temp,[3,5],[8,1],Tn.Rock)
+            tile(temp,6,[8,7],Tn.Lava)
+            setHelpInfo("Groundbreaking discovery: One less rock")
+        }else{
+            tile(temp,[3,5,1],[8,1,5],Tn.Rock)
+            tile(temp,6,[8,7,6],Tn.Lava)
+            setHelpInfo("I think this level rocks")
+        }
         return temp;
     },
     12:function(){
@@ -477,7 +537,10 @@ var floorFunc={
         tile(temp,0,[9,8,7])
         SaE(temp,[0,0],[10,10])
         portals(temp,[1,0],[10,0],1)//Dead End
-        tile(temp,[1,3,4,5,2,3,5,7,10],[4,5,1,9,6,7,5,6,4],Tn.Portal('A',1))
+        var xs=[1,3,4,5,2,3,5,7,10],ys=[4,5,1,9,6,7,5,6,4]
+        for(let i=0;i<xs.length;i++){
+            tile(temp,xs[i],ys[i],Tn.Portal('A',1,undefined,['portalA.png','portalB.png']))
+        }
         tile(temp,[8],[0],Tn.Lava)
         setHelpInfo("Good Luck")
         ///////////////////////////////////////////
@@ -496,7 +559,7 @@ var floorFunc={
         var i=0;
         startLoc.forEach(loc=>{
             var el=endLoc[i++]
-            temp[loc[0]][loc[1]]=Tn.OneWayPortal(el[0],el[1])
+            temp[loc[0]][loc[1]]=Tn.OneWayPortal(el[0],el[1],undefined,['portalA.png','portalB.png'])
         })
         return temp
     },
@@ -511,13 +574,16 @@ var floorFunc={
     
         tile(temp,1,9,Tn.Trap(Dir.UP,35))
         tile(temp,3,1,Tn.Trap(Dir.Down,35))
-    
+        
         pShield(0,2)
+
+        setHelpInfo(false)
+
         if(game.loops>=5){
             tile(temp,2,2)
             setHelpInfo("Patience may be a virtue, but you gotta make record time!")
         }else 
-            setHelpInfo("Take your shield in hand and use it with space to block those pesky darts")
+            tellL("Take your shield in hand and use it with space to block those pesky darts")
         return temp
     },
     14:function(){
@@ -557,7 +623,7 @@ var floorFunc={
                                     b(4,5,Tn.Path())
                                     new Switch(1,5,{onActivate:()=>{
                                         if(game.loops>=5){
-                                            //Faster
+                                            //Shorter
                                             b(6,5,Tn.Path())
                                         }else{
                                             //Longest
@@ -573,10 +639,9 @@ var floorFunc={
             }})
         }
         SaE(temp,[5,5],[9,5])
-        setHelpInfo('The blue circle is a switch that you can activate. Who knows what it could do')
+        tellL('The blue circle is a switch that you can activate. Who knows what it could do')
         return temp;
     },
-    //15:f15
     15:()=>{
         var temp=setFloorAs(Tn.Path,13,13)
         
@@ -598,9 +663,11 @@ var floorFunc={
 
         function left(n){
             funcGood(coords[n][0],coords[n][1])
-            if(++n===3)n=0
+            if(++n===3)
+                n=0
             funcBad1(coords[n][0],coords[n][1])  
-            if(++n===3)n=0
+            if(++n===3)
+                n=0
             funcBad2(coords[n][0],coords[n][1])
         }
 
@@ -652,9 +719,17 @@ var floorFunc={
         ]
         paths.forEach(path=>new Enemy(path,{moveStyle:Path.styles.vertHoriz}))
         tile(temp,4,2,Tn.Lava())
-        tile(temp,[6,2],2,Tn.Path())
+        tile(temp,[6,2],2,Tn.Path)
         SaE(temp,[0,2],[8,2])
-        setHelpInfo('These are enemies. Each one Has it\'s own agenda to kill you. Or just get where it wants to go')
+        tellL('These are enemies. Each one Has it\'s own agenda to kill you. Or just get where it wants to go')
+        return temp
+    },
+    17:()=>{
+        var temp=setFloorAs(Tn.RockRandom,9,5)
+        SaE(temp,[0,0],[8,4])
+        tile(temp,[2,2,3,4,3,1,2,4,5,4,6,4,5],[0,1,0,1,3,2,4,3,3,4,4,0,0])
+        tile(temp,7,4,Tn.Lava())
+        setHelpInfo(false)
         return temp
     },
     //#endregion
@@ -663,7 +738,7 @@ floorFunc[testFloorNum]=floorTest
 
 /**Debug testing map */
 function floorTest(){
-    var temp=setFloorAs(Tn.Path(),11,11);
+    var temp=setFloorAs(Tn.Path,11,11);
     SaE(temp,[0,0],[temp[0].length-1,temp.length-1])
     tile(temp,1,0,Tn.Hidden())
     tile(temp,2,0,Tn.Lava())
@@ -674,11 +749,16 @@ function floorTest(){
     tile(temp,6,0,Tn.Trap(Dir.Down,100))
     tile(temp,7,0,Tn.Bars())
     tile(temp,8,0,Tn.NoRock())
-    sArmorMax(1,7,2,7,10)
-    sToggleTile(8,3,7,0,{canToggle:true,oldType:temp[0][7]})
+    sArmorMax(1,7,2,7,10).onGrab()
+    pSpeedUp(0,4)
+    pSpeedUp(0,6)
+    sDart(7,9,7,7,Dir.Down)
+    sToggleTile(8,3,6,0,{canToggle:true,oldType:temp[0][6]})
     portals(temp,[1,0],[temp[0].length-1,temp.length-2],1)
     portals(temp,[1,1],[1,2],3)
     addKeys([0,8])    
+    pCheckPointPreLoad(2,4,temp)
+    pCheckPointPreLoad(9,7,temp)
     setHelpInfo('This is just a floor for testing each tile and such')
     return temp;
 }

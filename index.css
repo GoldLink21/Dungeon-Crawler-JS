@@ -35,3 +35,21 @@
     margin-bottom:auto;
     border:2px solid black;
 }
+
+#tell{
+    position: absolute;
+    background-color:lightblue;
+    border:solid blue 2px;
+    top:30%;
+    display:none;
+    margin:5%;
+    left:50%;
+    margin-top:0px;
+    text-align: center;
+    width: 90%;
+    left:0%;
+}
+#holder{
+    position: relative;
+    text-align: center;
+}

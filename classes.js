@@ -61,44 +61,61 @@ var images={
         } 
     }
 }
-images.preload('armor.png','bars.png','key.png','lock.png','portalA.png','portalB.png','portalC.png','rock.png','dart.png','speedUp.png')
+//images.preload('armor.png','bars.png','key.png','lock.png','portalA.png','portalB.png','rock.png','rock1.png','dart.png','speedUp.png')
 
 /**Handles all the timing system. While it says milliseconds, it's actually in deciseconds to save on lag and precision */
-var Clock={
-    milliseconds:0,
-    start:function() {
-        var self=this;
-        this.interval=setInterval(()=>{
-            self.milliseconds++;
-        },10);
-    },
-    pause:function(){
+var Clock1
+
+class Clock{
+    constructor(max,onComplete=()=>{}){
+        this.milliseconds=0
+        this.isPaused=false
+        if(max){
+            this.max=max
+            this.onComplete=onComplete
+        }
+        this.start()
+    }
+    start(){
+        if(!this.interval){
+            this.isPaused=false
+            var self=this
+            this.interval=setInterval(()=>{
+                self.milliseconds++;
+                if(self.milliseconds>=self.max){
+                    self.onComplete()
+                    self.pause()
+                }
+            },10)
+        }
+    }
+    pause(){
         clearInterval(this.interval);
+        this.isPaused=true
         delete this.interval;
-    },
-    resume:function(){
-        if(!this.interval)this.start();
-    },
-    toString:function(){
+    }
+    resume(){
+        if(this.isPaused)this.start();
+    }
+    toString(){
         return Clock.parse(this.milliseconds)
-    },
-    /**Takes the deciseconds passed in and makes it m:s.ds */
-    parse(milli){
+    }
+    static parse(milli){
         var sec=parseInt((milli/100)),
             min=parseInt(sec/60),
             mil=milli%100
         if(mil.toString().length===1)
-            mil+='0'
+            mil='0'+mil
         return min+':'+sec%60+'.'+mil
-    },
-    /**Takes m:s.ds and returns the deciseconds */
-    unParse(str){
+    }
+    static unParse(str){
         var split=str.split(':'),
             t=split[1].split('.')
         return(parseInt(split[0]*6000)+parseInt(t[0]*100)+parseInt(t[1]))
     }
-};
-Clock.start()
+}
+
+Clock1=new Clock()
 //#endregion
 
 var _pickupOnRemoveAll=[],
@@ -125,7 +142,10 @@ class Pickup{
      * @param {number} id The id for selecting a single pickup 
      * @example function pArmor(x,y,id)//This is the general structure for making a new pickup of any new class. They should not need more input than this
      */
-    constructor(x,y,{width=10,height=10,color='white',type=_nextPickupType(),id=_nextId(),onGrab=()=>{},onRemove=()=>{},isCircle=false,img,addToArr=true,hidden=false,isActive=true}={}){
+    constructor(x,y,
+            {width=10,height=10,color='white',type=_nextPickupType(),id=_nextId(),onGrab=()=>{},
+            onRemove=()=>{},isCircle=false,img,addToArr=true,hidden=false,isActive=true}={})
+    {
         this.x=(x*Tn.SIZE+Tn.SIZE/2-width/2)
         this.y=(y*Tn.SIZE+Tn.SIZE/2-height/2)
         this.width=width
@@ -153,7 +173,9 @@ class Pickup{
         if(!this.isActive)
             return false
         return!(((this.y+this.height)<(player.y))||
-            (this.y>(player.y+player.height))||((this.x+this.width)<player.x)||(this.x>(player.x+player.width)));
+            (this.y>(player.y+player.height))||
+            ((this.x+this.width)<player.x)||
+            (this.x>(player.x+player.width)));
     }
     setActive(bool){
         this.isActive=bool
@@ -213,12 +235,9 @@ class Pickup{
     static _addRemoveFunc(type,func){
         var obj={type:type,func:func},
             toAdd=true
-        for(let i=0;i<_pickupOnRemoveAll.length;i++){
-            var other=_pickupOnRemoveAll[i]
-            if(other.type===obj.type){
-                toAdd=false
-                break
-            }
+
+        if(_pickupOnRemoveAll.filter(r=>{return r.type===obj.type}).length>0){
+            toAdd=false
         }
         if(toAdd)
             _pickupOnRemoveAll.push(obj)
@@ -241,8 +260,11 @@ class Switch extends Pickup{
      * @param {string} inactiveColor The color before activation
      * @param {string} activeColor The color after being activated
      */
-    constructor(x,y,{onActivate=()=>{},canDeactivate=false,onDeactivate,inactiveColor='blue',activeColor='darkblue',addToArr=true,isActive=true,id=_nextId()}={}){
-        super(x,y,{width:Tn.SIZE/2,height:Tn.SIZE/2,color:inactiveColor,type:'switch',onGrab:onActivate,onRemove:()=>{},isCircle:true,addToArr:addToArr,id:id,isActive:isActive})
+    constructor(x,y,
+            {onActivate=()=>{},canDeactivate=false,onDeactivate,inactiveColor='blue',
+            activeColor='darkblue',addToArr=true,isActive=true,id=_nextId(),type='switch'}={})
+    {
+        super(x,y,{width:Tn.SIZE/2,height:Tn.SIZE/2,color:inactiveColor,type:type,onGrab:onActivate,onRemove:()=>{},isCircle:true,addToArr:addToArr,id:id,isActive:isActive})
         this.hasActivated=false
         this.canDeactivate=canDeactivate
         this.onDeactivate=onDeactivate
@@ -286,33 +308,60 @@ function pShield(x,y,id){
 /**Allows the player to block one hit. Ineffective with lava */
 function pArmor(x,y,id){
     return new Pickup(x,y,
-        {width:25,height:25,color:'lightgrey',type:'armor',onGrab:()=>{player.armor++},
+        {width:23,height:23,color:'lightgrey',type:'armor',onGrab:()=>{player.armor++},
             onRemove:()=>{player.armor=0},img:'armor.png',id:id})
 }
 
-function pCheckPoint(x,y,id=_nextId(),addOldCheckPoint=true,onGrab=()=>{}){
-    var t=new Pickup(x,y,{color:'white',id:id,onGrab:()=>{
-        for(var i=0;i<board.length;i++)
-            for(var j=0;j<board[i].length;j++)
-                if(b(j,i).is(Tn.start)){
-                    b(j,i,Tn.Path())
-                    if(addOldCheckPoint)
-                        pCheckPoint(j,i)
-                    break; 
-                }
+function pCheckPointPostLoad(x,y,id=_nextId(),addOldCheckPoint=true,onGrab=()=>{}){
+    if(!b(x,y).is(Tn.start)){
+        var t=new Pickup(x,y,{color:'white',type:'checkPoint',id:id,onGrab:()=>{
+            for(var i=0;i<board.length;i++)
+                for(var j=0;j<board[i].length;j++)
+                    if(b(j,i).is(Tn.start)){
+                        b(j,i,Tn.Path())
+                        if(addOldCheckPoint)
+                            pCheckPointPostLoad(j,i)
+                        break; 
+                    }
 
-        var rp=roundPoint(t.x,t.y)
-        b(rp[0],rp[1],Tn.Start())
-        spawnPoint={x:rp[0],y:rp[1]}
-        onGrab()
-    }})
-    return t
+            var rp=roundPoint(t.x,t.y)
+            b(rp[0],rp[1],Tn.Start())
+            spawnPoint={x:rp[0],y:rp[1]}
+            onGrab()
+        }})
+        return t
+    }else{
+        console.warn('Start tile already there')
+    }
+}
+
+function pCheckPointPreLoad(x,y,temp,id=_nextId(),addOldCheckPoint=true,onGrab=()=>{}){
+    if(!temp[y][x].is(Tn.start)){
+        var t=new Pickup(x,y,{color:'white',type:'checkPoint',id:id,onGrab:()=>{
+            for(var i=0;i<board.length;i++)
+                for(var j=0;j<board[i].length;j++)
+                    if(b(j,i).is(Tn.start)){
+                        b(j,i,Tn.Path())
+                        if(addOldCheckPoint)
+                            pCheckPointPostLoad(j,i)
+                        break; 
+                    }
+
+            var rp=roundPoint(t.x,t.y)
+            b(rp[0],rp[1],Tn.Start())
+            spawnPoint={x:rp[0],y:rp[1]}
+            onGrab()
+        }})
+        return t
+    }else{
+        console.warn('Start tile already there')
+    }
 }
 
 /**Allows players on hard difficulty to respawn on the floor that this was grabbed on */
 function pGoldCheckPoint(x,y,id=_nextId()){
     if(game.difficulty.isHard()&&curFloor!==goldSpawnFloor){
-        var t=new Pickup(x,y,{color:'gold',id:id,onGrab:()=>{
+        var t=new Pickup(x,y,{color:'gold',type:'goldCheckPoint',id:id,onGrab:()=>{
             goldSpawnFloor=curFloor
         }})
         return t;
@@ -320,8 +369,8 @@ function pGoldCheckPoint(x,y,id=_nextId()){
 }
 
 function pLava(x,y,id=_nextId()){
-    var p= new Pickup(x,y,{color:'maroon',id:id,onGrab:()=>{
-        player.kill();
+    var p=new Pickup(x,y,{color:'maroon',type:'miniLava',id:id,onGrab:()=>{
+        player.kill(Tn.lava);
         var rp=roundPoint(p.x,p.y)
         pLava(rp[0],rp[1],p.id)
     }})
@@ -329,7 +378,7 @@ function pLava(x,y,id=_nextId()){
 }
 
 function pSpeedUp(x,y,id){
-    return new Pickup(x,y,{id:id,onGrab:()=>{
+    return new Pickup(x,y,{id:id,type:'speedUp',onGrab:()=>{
         player.speed+=2
     },onRemove:()=>{
         player.speed=player.defaultSpeed
@@ -536,7 +585,7 @@ class Enemy{
     static checkAllCollide(){
         enemies.forEach(enemy=>{
             if(enemy.isPlayerCollide())
-                player.kill()
+                player.kill('enemy')
         })
     }
 }
