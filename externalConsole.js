@@ -1,9 +1,10 @@
-class Merged{
+class ExternalConsole{
     constructor(parent=document.body,show=true){
         this.isVisible=show
         this.inputLog=[]
+        /**@type {{str:string,func:Function,nn:string,max:number,min:number}[]} */
         this.commands=[];
-        
+        this.isFocused=false
         this.HTML={
             all:document.createElement('div'),
             input:document.createElement('input'),
@@ -11,12 +12,13 @@ class Merged{
             output:document.createElement('div')
         }
         this.HTML.all.style.border='solid black 1px'
-
         this.HTML.btn.textContent='Run'
         this.HTML.input.style.fontSize='15px'
         this.HTML.input.size=27
         this.HTML.input.placeholder='Command here'
-        
+        this.HTML.input.addEventListener('focus',()=>{this.isFocused=true})   
+        this.HTML.input.addEventListener('blur',()=>{this.isFocused=false})     
+
         function append(...children){
             children.forEach(child=>{
                 this.HTML.all.appendChild(child)
@@ -80,7 +82,7 @@ class Merged{
         this.HTML.output.innerHTML=str
     }
     error(reason){
-        this.setOutput('<div style="color:red">'+reason+'</div>')
+        this.setOutput(reason.fontcolor('red'))
     }
     addCommand(str,func,nickName,minParams, maxParams=minParams){
         this.commands.push({str:str,func:func,nn:nickName,max:maxParams,min:minParams})
@@ -88,6 +90,8 @@ class Merged{
     }
     run(){
         var command=this.HTML.input.value
+        if(command==='')
+            return
         this.inputLog.push(command)
         var split=command.split(' ')
         var c=this.commands.find(com=>com.str===split[0]||com.nn===split[0])
@@ -102,7 +106,7 @@ class Merged{
                 c.func(...split)
             }
         }else{
-            this.error(`Unknown symbol ${front}`)
+            this.error(`Unknown command "${front}"`)
         }
     }
     /**Directly runs the command from a string without interrupting other things */
