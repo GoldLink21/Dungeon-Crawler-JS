@@ -1,520 +1,564 @@
-function nextId(type='generic'){
-    if(nextId["ID"+type]===undefined)
-        nextId["ID"+type]=(function*(){var id=0;while(true)yield id++;})()
-    return nextId["ID"+type].next().value
-}
-class Entity{
-    constructor(x,y,width,height,color,{id=nextId("entity"),isCircle=false}={}){
-        this.color=color
-        this.width=width
-        this.height=height
-        this.x=(x*Tn.SIZE+Tn.SIZE/2-width/2)
-        this.y=(y*Tn.SIZE+Tn.SIZE/2-height/2)
-        this.active=true
-        this.toRemove=false
-        this.id=id
-        this.isCircle=isCircle
-        this.hasShadow=true
-    }
-    withId(val){
-        this.id=val
-        return this
-    }
-    withImg(img){
-        this.img=img
-        return this
-    }
-    setPosition(x,y){
-        this.x=(x*Tn.SIZE+Tn.SIZE/2-width/2)
-        this.y=(y*Tn.SIZE+Tn.SIZE/2-height/2)
-        return this
-    }
-    draw(t){
-        if(this.active){
-            ctx.fillStyle=this.color
-            if(this.hasShadow)
-                shadow(2)
+/**Holds the info for a single level of the game */
+class TMap {
+    /**@type {Tile[][]} */
+    #tiles;
+    #active;
+    /**@type {(function():Ent)[]} */
+    #ents;
+    constructor(width, height){
+        this.width = width;
+        this.height = height;
 
-            if(this.img){
-                ctx.drawImage(images.get(this.img),this.x,this.y,this.width,this.height)
-            }else if(!this.isCircle){
-                ctx.fillRect(this.x,this.y,this.width,this.height)
-                shadow()
-                ctx.strokeRect(this.x,this.y,this.width,this.height)
-            }else{
-                ctx.beginPath()
-                ctx.ellipse((this.x+this.width/2),(this.y+this.height/2),(this.width/2),(this.height/2),0,0,Math.PI*2)
-                ctx.fill()
-                shadow()
-                ctx.stroke()
-                ctx.closePath()
+        this.verticalFlip = false;
+        this.horizFlip = false;
+
+        this.#active = false;
+
+        this.offsetX = -((width-1)*Tile.size)/2;
+        this.offsetY = -((height-1)*Tile.size)/2;
+
+        this.startX = 0;
+        this.startY = 0;
+
+        this.#ents = [];
+        this.#tiles = Array(width)
+        for(let i = 0; i < this.#tiles.length; i++){
+            this.#tiles[i] = Array(height).fill(null);
+        }
+        this.portalID = 0;
+    }
+    zoom(val){
+        camera.zoom = val;
+        return this;
+    }
+    #realPos(x,y){
+        var nx = x;
+        var ny = y;
+        
+        if(this.verticalFlip){
+            ny = this.height - y - 1;
+        } 
+        if(this.horizFlip){
+            nx = this.width - x - 1;
+        }
+        return {x:nx,y:ny}
+    }
+    #realRot(ang){
+        let a =  new Angle(ang.deg)
+        //console.log("-Before",a.deg)
+        if(this.verticalFlip && (a.deg == Cardinals.Down.deg || a.deg == Cardinals.Up.deg)){
+            //console.log("Flipping vert")
+            a.deg += 180;
+        }
+        if(this.horizFlip && (a.deg == Cardinals.Left.deg || a.deg == Cardinals.Right.deg)){
+            //console.log("Flipping Horiz")
+            a.deg -= 180;
+        }
+        //console.log("-After",a.deg);
+        return a.round();
+    }
+    anyFlip(){
+        
+        if(!debug.noFlip){
+            return this.withFlip(Rnd.chance(),Rnd.chance())
+        }
+        return this;
+    }
+    /**@param {Angle} rot */
+    withFlip(vert = false, horiz=false){
+        this.verticalFlip = vert;
+        this.horizFlip = horiz;
+        return this;
+    }
+    /**@param {Tile} tile */
+    fill(tile){
+        for(let i = 0; i <this.#tiles.length;i++){
+            for(let j = 0; j < this.#tiles[i].length;j++){
+               this.set(i,j,tile)
             }
         }
+        return this;
     }
-    setShadow(bool){
-        this.hasShadow=bool
-        return this
+    /**@param {function():Ent} e */
+    addEnt(e){
+        this.#ents.push(e)
+        return this;
     }
-    move(){}
-    getCorners(){
-        return getRounded(this)
+    /**Runs a function on the map 
+     * @param {function(TMap):void} func 
+     */
+    run(func) {
+        func(this);
+        return this;
     }
-    isCollide(other){
-        return isCollide(this,other)
+    /**Says this is the active map and add all tiles to the entities list */
+    track() {
+        //Make var for fully formed 
+        this.forEach(t=>t.track())
+        //this.#tiles.forEach(row=>row.forEach(t=>t.track()));
+        this.#ents.forEach(e=>{
+            let ne = e();
+            //Get the position correct for the ent
+            let oldPos = ne.getTilePosition();
+            let newPos = this.#realPos(oldPos.x,oldPos.y);
+            ne.at(newPos.x,newPos.y);
+        })
+        this.#active = true;
+        return this;
+    }
+    clone() {
+        var copy = new TMap(this.width,this.height)
+        for(let i = 0; i <this.#tiles.length; i++){
+            for(let j = 0; j < this.#tiles.length; j++){
+                copy.set(i,j,this.#tiles[i][j])
+            }
+        }
+        return copy;
+    }
+    /**
+     * @param {number|number[]} x
+     * @param {number|number[]} y
+     * @param {Tile|function():Tile} val 
+     */
+    set(x,y,val){
+        GameKit.forceRenderSlowCanvas = true;
+        if(Array.isArray(x)){
+            if(Array.isArray(y)){
+                //Pairs of (x,y)
+                for(let i=0;i<x.length;i++){
+                    this.set(x[i],y[i],val);
+                }
+            } else {
+                //One y for many x
+                for(let i=0;i<x.length;i++){
+                    this.set(x[i],y,val);
+                }
+            }
+            return this;
+        } else if(Array.isArray(y)){
+            //One x for many y
+            for(let i=0;i<y.length;i++){
+                this.set(x,y[i],val);
+            }
+            return this;
+        }
+        //Needs all params
+        if(!(x || y || val)){
+            return this;
+        }
+
+        //Gets the tile if it is a function
+        if(typeof val == 'function'){
+            val = val()
+        }
+        
+        //Handle rotation of map
+        var nPos = this.#realPos(x,y);
+        var ax = nPos.x, ay = nPos.y;
+        
+        //Remove if there is something there
+        if(this.#tiles[ax][ay])
+            this.#tiles[ax][ay].toRemove = true;
+
+        this.#tiles[ax][ay] = val.clone().at(ax,ay).offset(this.offsetX,this.offsetY);
+        if(this.#tiles[ax][ay].is(Tnames.Trap)){
+            this.#tiles[ax][ay].properties.trap.dir = this.#realRot(val.properties.trap.dir);
+        }
+
+        if(this.#tiles[ax][ay].name == Tnames.Start){
+            this.startX = ax;
+            this.startY = ay;
+        }
+        if(this.#active){
+            this.#tiles[ax][ay].track();
+        }
+        return this;
+    }
+    start(x,y){
+        return this.set(x,y,T.Start);
+    }
+    end(x,y){
+        return this.set(x,y,T.End)
+    }
+    /**Adds a one way portal */
+    portal(x,y,tx,ty){
+        return this.set(x,y,T.PortalC(tx,ty))
+    }
+    /**Adds two portals linked together */
+    portals(x1,y1,x2,y2){
+               this.set(x1,y1,T.PortalA(this.portalID,  x2,y2));
+        return this.set(x2,y2,T.PortalB(this.portalID++,x1,y1));
+
+    }
+    /**Removes every tile in the map */
+    remove(){
+        this.forEach(t=>t.toRemove=true);
+        this.#active = false;
+    }
+    get(x,y) {
+        return this.#tiles[x][y];
+    }
+    /**@param {function(Tile):void} func */
+    forEach(func){
+        this.#tiles.forEach(row=>{
+            row.forEach(tile=>{
+                func(tile)
+            })
+        })
+    }
+    border(type){
+        for(let i = 0; i < this.width; i++){
+            this.set(i,[0,this.height-1],type);
+        }
+        for(let i = 1; i < this.height - 1; i++){
+            this.set([0,this.width-1],i,type);
+        }
+        return this;
     }
 }
 
-var entities=[]
 
-//#region Small-Classes
-class Counter{
-    /**
-     * A class for counting times a thing happens and running a function after that
-     * @param {number} max The max number of times the counter can count till it does onComplete
-     * @param {function} onComplete The function to run once the counter is complete
-     */
-    constructor(max,onComplete=()=>{}){
-        if(max<=0)
-            throw new RangeError('Max count must be positive and greater than 0')
-        this._max=max
-        this._cur=0
-        this.onComplete=onComplete
+let goingToNextFloor = false;
+
+let t = new Tile(1,1,Tnames.Path);
+
+/**The currently active map */
+var activeMap = new TMap(15,15).fill(t).track()
+
+/**Generalized Ent class for this game */
+class Ent extends RectEnt {
+    constructor(x,y,width,height,color,doNotAdd = false){
+        super(x,y,width,height,color,'black',doNotAdd);
+        this.drawLayer = drawLayers.Ent;
+
+        this.slowRender = false;
+        let self = this;
+        this.localRect = {
+            set left(val){self.x = val + self.width/2},
+            get left(){return self.x-self.width/2},
+    
+            set right(val){self.x = val - self.width/2},
+            get right(){return self.x+self.width/2},
+    
+            set top(val){self.y = val + self.height/2},
+            get top(){return self.y+self.height/2},
+    
+            set bottom(val){self.y = val - self.height/2},
+            get bottom(){return self.y-self.height/2}
+        }
+        /**@type {Cardinals} The last moved direction for active items */
+        this.lastDirection = new Angle(Cardinals.Up.deg);
+        /**@type {ActiveItem} */
+        this.activeItem = undefined;
+        
     }
-    count(n=1){
-        this.cur+=n
-        return this
+    
+    /**Used for setting tile position */
+    at(x,y){
+        this.x = (Tile.size * x) + activeMap.offsetX;
+        this.y = (Tile.size * y) + activeMap.offsetY;
+        return this;
+    }
+    getTilePosition(){
+        return pos(Math.floor((this.x-activeMap.offsetX)/Tile.size),Math.floor((this.y-activeMap.offsetY)/Tile.size))
+    }
+    /**Gets all entities that are within a short range of this entity */
+    getCloseEnts(){
+        return entities.filter(e=>{
+            return (e != this) && (Math.abs(e.x - this.x) < (e.width-this.width + 5)) && (Math.abs(e.y - this.y) < (e.height-this.height/2))
+        })
+    }
+    getCloseTiles(){
+        return this.getCloseEnts().filter(e=>e.constructor.name == "Tile");
+    }
+    /**Ensures the entity is within the bounds of the active map. Snaps inside if not */
+    snapIntoMap(){
+        let checkLeft = activeMap.offsetX - Tile.size2 + this.width/2
+        let checkRight = -activeMap.offsetX + Tile.size2 - this.width/2;
+        let checkUp = activeMap.offsetY - Tile.size2 + this.height/2;
+        let checkDown = -activeMap.offsetY + Tile.size2 - this.height/2
+        if(this.x < checkLeft){
+            this.x = checkLeft;
+        }
+        if(this.x > checkRight){
+            this.x = checkRight;
+        }
+        if(this.y < checkUp){
+            this.y = checkUp;
+        }
+        if(this.y > checkDown){
+            this.y = checkDown;
+        }
+    }
+    isOutsideMap(){
+        return ((this.x < (activeMap.offsetX - Tile.size2 + this.width/2))   || 
+                (this.x > (-activeMap.offsetX + Tile.size2 - this.width/2))  ||
+                (this.y < (activeMap.offsetY - Tile.size2 + this.height/2))  ||
+                (this.y > (-activeMap.offsetY + Tile.size2 - this.height/2)));
+    }
+}
+
+/**A class for entities that are able to teleport on portals */
+class TeleportableEnt extends Ent{
+    constructor(x,y,width,height,color,borderColor,doNotAdd){
+        super(x,y,width,height,color,borderColor,doNotAdd);
+        this.portal = {
+            id:null,
+            hasTele:false,
+            type:null
+        }
+    }
+    /**
+     * Checks the teleportation status of a tile and teleports
+     * you if it is a portal
+     * @param {Tile} tile 
+     */
+    checkTele(tile){
+        if(tile.is(Tnames.Portal)){
+            this.portal.type = tile.properties.portal.type;
+            this.portal.id = tile.properties.portal.id;
+            this.at(x,y);
+        }
+    }
+}
+
+class Player extends TeleportableEnt {
+    static states = {
+        normal:'normal',
+        moveLocked:'moveLocked',
+        hurt:'hurt'
+    }
+    constructor(){
+        super(0,0,17,17,'steelblue',undefined,false);
+        this.drawLayer = drawLayers.Player;
+        this.at(0,0)
+
+        this.speed = 2;
+        this.defaultSpeed = this.speed;;
+        
+        this.diagSpeed = this.speed / Math.SQRT2;
+        this.defaultDiagSpeed = this.diagSpeed;
+
+        /**@type {{x:number,y:number}}  */
+        this.lockedDir = undefined;
+        
+        this.keys = 0;
+
+        this.inv = false;
+
+        this.state = Player.states.normal;
+    }
+    kill(source){
+        if(!debug.inv)
+            this.at(activeMap.startX,activeMap.startY);
     }
     reset(){
-        this.cur=0;
-        return this
+        this.keys = 0;
+        this.color = 'steelblue';
+        this.resetSpeed();
+        this.activeItem = undefined;
     }
-    toString(){
-        return this.cur+'/'+this.max
+    setColor(){
+
     }
-    set cur(val){
-        this._cur=val
-        while(this._cur>=this._max){
-            this._cur-=this._max
-            this.onComplete()
+    move(){
+        //Handle input controls
+        let dx = 0, dy = 0;
+        if(C.pressed['w'] || C.pressed["up"]){
+            dy += -1;
         }
-    }
-    set max(val){
-        if(val<=0)
-            throw new RangeError('Max count must be poitive and greater than 0')
-        this._max=val
-        this.cur=this.cur
-    }
-    get cur(){return this._cur}
-    get max(){return this._max}
-}
-
-/**Handles all the timing system. While it says milliseconds, it's actually in deciseconds to save on lag and precision */
-var Clock1
-
-class Clock{
-    constructor(max,onComplete=()=>{}){
-        this.milliseconds=0
-        this.isPaused=false
-        if(max){
-            this.max=max
-            this.onComplete=onComplete
+        if(C.pressed["a"] || C.pressed['left']){
+            dx += -1;
         }
-        this.start()
-    }
-    start(){
-        if(!this.interval){
-            this.isPaused=false
-            var self=this
-            this.interval=setInterval(()=>{
-                self.milliseconds++;
-                if(self.milliseconds>=self.max){
-                    self.onComplete()
-                    self.pause()
-                }
-            },10)
+        if(C.pressed["d"] || C.pressed['right']){
+            dx += 1
         }
-    }
-    pause(){
-        clearInterval(this.interval);
-        this.isPaused=true
-        delete this.interval;
-    }
-    resume(){
-        if(this.isPaused)this.start();
-    }
-    toString(){
-        return Clock.parse(this.milliseconds)
-    }
-    static parse(milli){
-        var sec=parseInt((milli/100)),
-            min=parseInt(sec/60),
-            mil=milli%100
-        if(mil.toString().length===1)
-            mil='0'+mil
-        return min+':'+sec%60+'.'+mil
-    }
-    static unParse(str){
-        var split=str.split(':'),
-            t=split[1].split('.')
-        return(parseInt(split[0]*6000)+parseInt(t[0]*100)+parseInt(t[1]))
-    }
-}
-
-Clock1=new Clock()
-//#endregion
-
-class TrapObj{
-    constructor(x,y,dir,delay,speed,startVal=0){
-        this.x=x
-        this.y=y
-        this.dir=dir
-        this.delay=delay
-        this.speed=speed
-        var t=this
-        this.counter=new Counter(this.delay,function(){
-            Dart(t.x,t.y,t.dir,t.speed)
-        })
-        this.counter.cur=startVal
-    }
-    fire(){
-        this.counter.count()
-    }
-}
-
-var _pickupOnRemoveAll=[]
-
-class Pickup extends Entity{
-    /**
-     * Objects that appear on the map above a tile and are collected upon player collision. Any functions defined 
-     * for preset types of pickups should be prefixed with a p and have the first three parameters x, y, and id
-     * @param {string} type The name of the type of object
-     * @param {Function} onGrab The function to run when the obj is grabbed. Usually ()=>{counter++}
-     * @param {Function} onRemove The function to run when the object gets removed. Usually ()=>{counter=0}
-     * @param {string} img The route to the img name for the pickup if available
-     * @param {boolean} hidden Tells Whether to make the pickup hidden or not
-     * @param {number} id The id for selecting a single pickup 
-     * @example function pArmor(x,y,id)//This is the general structure for making a new pickup of any new class. They should not need more input than this
-     */
-    constructor(x,y,
-            {width=10,height=10,color='white',type=nextId("pickupType"),id=nextId("pickup"),onGrab=(p)=>{},
-            onRemove=()=>{},isCircle=false,img,addToArr=true,hidden=false,isActive=true}={})
-    {
-        super(x,y,width,height,color,{id:id,isCircle:isCircle})
-        this.onGrab=onGrab
-        /**Unique type for specific types of pickups. Used for telling which removal functions to run */
-        this.type=type
-        /**Unique id for each new Pickup, generated automatically. Can also be set beforehand */
-        this.hidden=hidden
-        this.isActive=isActive
-        Pickup._addRemoveFunc(type,onRemove)
-        //Only set this.img if there is an img
-        if(img)
-            this.img=img
-        this.toRemove=false
-        if(addToArr)
-            pickups.push(this)
-
-        this.self=this
-    }
-    withId(val){
-        this.id=val
-        return this
-    }
-    isPlayerCollide(){
-        if(!this.isActive)
-            return false
-        return _players.some(p=>isCollide(this,p));
-    }
-    getCollidingPlayer(){
-        return _players.find(p=>isCollide(p,this))
-    }
-    setActive(bool){
-        this.isActive=bool
-        this.hidden=!bool
-    }
-    checkPlayerCollide(){
-        if(this.isPlayerCollide()){
-            this.toRemove=true;
-            this.onGrab(this.getCollidingPlayer());
+        if(C.pressed['s'] || C.pressed["down"]){
+            dy += 1;
         }
-    }
-    setPosition(x,y){
-        this.x=(x*Tn.SIZE+Tn.SIZE/2-this.width/2)
-        this.y=(y*Tn.SIZE+Tn.SIZE/2-this.height/2)
-    }
-    draw(){
-        if(!this.otherDrawFunc)
-            super.draw()
-        else
-            this.otherDrawFunc(this)
-    }
-    /**@param {function(Pickup)} func */
-    setDrawFunc(func){
-        this.otherDrawFunc=func
-        return this
-    }
-    static checkAllCollide(){
-        for(let i=0;i<pickups.length;i++){
-            pickups[i].checkPlayerCollide()
-            if(pickups[i].toRemove)
-                pickups.splice(i--,1)
+        if(dx != 0 && dy != 0){
+            dx *= this.diagSpeed;
+            dy *= this.diagSpeed;
+        } else {
+            dx *= this.speed;
+            dy *= this.speed;
         }
-    }
-    static removeAll(){
-        pickups=[]
-        _pickupOnRemoveAll.forEach(func=>func.func())
-        _pickupOnRemoveAll=[]
-    }
-    static _addRemoveFunc(type,func){
-        var obj={type:type,func:func},
-            toAdd=true
-
-        if(_pickupOnRemoveAll.filter(r=>{return r.type===obj.type}).length>0){
-            toAdd=false
-        }
-        if(toAdd)
-            _pickupOnRemoveAll.push(obj)
-    }
-    static getById(id){
-        return pickups.find(x=>x.id==id)
-    }
-}
-
-class Switch extends Pickup{
-    /**
-     * Class for pickups that you can't actually pick up, but instead can be activated and deactivated to do stuff.
-     * They stay on the map after interactions which allows changing the map while playing. Prefix functions
-     * defining switch types with an s
-     * @param {number} x Map x
-     * @param {number} y Map y
-     * @param {Function} onActivate Function used on activation
-     * @param {boolean} canDecativeate Tells if you can deactivate the switch for a different action
-     * @param {Function} onDeactivate Function used on deactivation if canDeactivate
-     * @param {string} inactiveColor The color before activation
-     * @param {string} activeColor The color after being activated
-     */
-    constructor(x,y,
-            {onActivate=()=>{},canDeactivate=false,onDeactivate,inactiveColor='blue',
-            activeColor='darkblue',addToArr=true,isActive=true,id=nextId("pickup"),type='switch'}={})
-    {
-        super(x,y,{width:Tn.SIZE/2,height:Tn.SIZE/2,color:inactiveColor,type:type,onGrab:onActivate,onRemove:()=>{},isCircle:true,addToArr:addToArr,id:id,isActive:isActive})
-        this.hasActivated=false
-        this.hasShadow=false
-        this.canDeactivate=canDeactivate
-        this.onDeactivate=onDeactivate
-        this.inactiveColor=inactiveColor
-        this.activeColor=activeColor
-        this.hasUntouchedPlayer=true
-    }
-    /**Overrides checkPlayerCollision to allow non-removal and step on-step off detection */
-    checkPlayerCollide(){
-        var pc=this.isPlayerCollide()
-        //If collided, hasn't activated and you've stoped touching player
-        if(pc&&!this.hasActivated&&this.hasUntouchedPlayer){
-            this.color=this.activeColor
-            this.hasActivated=true
-            this.onGrab(this.getCollidingPlayer())
-            this.hasUntouchedPlayer=false
-        //If collided and activated and able to deactivate and you've stopped touching the player
-        }if(pc&&this.hasActivated&&this.canDeactivate&&this.hasUntouchedPlayer){
-            this.hasActivated=false
-            //If it can deactivate but onDeactivate isn't defined, then uses onGrab instead
-            if(this.onDeactivate)
-                this.onDeactivate()
-            else 
-                this.onGrab(this.getCollidingPlayer())
-            this.color=this.inactiveColor
-            this.hasUntouchedPlayer=false
-        //If not collided and you haven't stopped touching player
-        }if(!pc&&!this.hasUntouchedPlayer)
-            this.hasUntouchedPlayer=true
-    }
-}
-
-//#region Predefined-objects
-
-
-/**Allows the player to block one hit. Ineffective with lava */
-function pArmor(x,y,id){
-    return new Pickup(x,y,
-        {width:23,height:23,color:'lightgrey',type:'armor',onGrab:(p)=>{p.armor++},
-            onRemove:()=>{_players.forEach(p=>p.armor=0)},img:'armor.png',id:id})
-}
-
-function pCheckPointPostLoad(x,y,id=nextId("pickup"),addOldCheckPoint=true,onGrab=()=>{}){
-    if(!b(x,y).is(Tn.start)){
-        var t=new Pickup(x,y,{color:'white',type:'checkPoint',id:id,onGrab:()=>{
-            for(var i=0;i<board.length;i++)
-                for(var j=0;j<board[i].length;j++)
-                    if(b(j,i).is(Tn.start)){
-                        b(j,i,Tn.Path())
-                        if(addOldCheckPoint)
-                            pCheckPointPostLoad(j,i)
-                        break; 
-                    }
-
-            var rp=roundPoint(t.x,t.y)
-            b(rp.x,rp.y,Tn.Start())
-            spawnPoint={x:rp.x,y:rp.y}
-            onGrab()
-        }})
-        return t
-    }else{
-        console.warn('Start tile already there')
-    }
-}
-
-function pInv(x,y,onGrabFunc){
-    return new Pickup(x,y,{width:Tn.SIZE,height:Tn.SIZE,color:'rgba(0,0,0,0)',onGrab:onGrabFunc}).setShadow(false)
-}
-
-function pAch(x,y,name,onGrab,showMulti=false,onMulti){
-    if(!achievements.includes(name)||showMulti)
-        return new Pickup(x,y,{width:Tn.SIZE,height:Tn.SIZE,color:'rgba(0,0,0,0)',onGrab:()=>{giveAch(name,onGrab,showMulti,onMulti)}})
-    return false
-}
-
-function pCheckPointPreLoad(x,y,temp,id=nextId("pickup"),addOldCheckPoint=true,onGrab=()=>{}){
-    if(!temp[y][x].is(Tn.start)){
-        var t=new Pickup(x,y,{color:'white',type:'checkPoint',id:id,onGrab:()=>{
-            for(var i=0;i<board.length;i++)
-                for(var j=0;j<board[i].length;j++)
-                    if(b(j,i).is(Tn.start)){
-                        b(j,i,Tn.Path())
-                        if(addOldCheckPoint)
-                            pCheckPointPostLoad(j,i)
-                        break; 
-                    }
-
-            var rp=roundPoint(t.x,t.y)
-            b(rp.x,rp.y,Tn.Start())
-            spawnPoint=rp
-            onGrab()
-        }})
-        return t
-    }else{
-        console.warn('Start tile already there')
-    }
-}
-
-/**Allows players on hard difficulty to respawn on the floor that this was grabbed on */
-function pGoldCheckPoint(x,y,id=nextId("pickup")){
-    if(game.difficulty.isHard()&&curFloor!==goldSpawnFloor){
-        var t=new Pickup(x,y,{color:'gold',type:'goldCheckPoint',id:id,onGrab:()=>{
-            goldSpawnFloor=curFloor
-        }})
-        .setDrawFunc(t=>{
-            ctx.shadowBlur=10
-            ctx.shadowColor='white'
-            g.rect(t.x,t.y,t.width,t.height,t.color)
-            shadow(0,0)
-            ctx.shadowColor='black'
-            ctx.shadowBlur=0
-        })
-        return t;
-    }
-}
-
-function pLava(x,y,id=nextId("pickup"),brd=board){
-    if(!brd[y][x].is(Tn.start,Tn.end)){
-        var p=new Pickup(x,y,{color:'maroon',type:'miniLava',id:id,onGrab:(pl)=>{
-            if(!debug.inv){
-                pl.kill(Tn.lava);
-                var rp=roundPoint(p.x,p.y)
-                if(game.difficulty.isEasy())
-                    pLava(rp.x,rp.y,p.id)
+        //@TODO
+        if(this.activeItem){
+            //console.log(this.activeItem)
+            if(C.pressed["space"] && !this.activeItem.isActive()){
+                this.activeItem.activate();
+            } else if(!C.pressed["space"] && this.activeItem.isActive()) {
+                this.activeItem.deactivate();
             }
-            
-        }})
-        return p
-    }
-    return false
-}
-
-function pSpeedUp(x,y,id){
-    return new Pickup(x,y,{id:id,type:'speedUp',onGrab:(p)=>{
-        p.speed+=2
-    },onRemove:()=>{
-        _players.forEach(p=>p.speed=p.defaultSpeed)
-    },img:'speedUp.png',width:18,height:18})
-}
-
-/**
- * Sets a switch that toggles a tile between a path and whatever it was before. Don't use on traps
- * @param {Function} onActivate Ran when activated
- * @param {boolean} canToggle If you can deactivate
- * @param {Function} onDeactivate Ran on deactivation. Runs on top of switching the tile back
- * @param {any} oldType The type to set the tile to when deactivated. Add by hand if switch is placed on level load. 
- *                      Does not matter if !canToggle
- */
-function sToggleTile(sx,sy,ox,oy,{onActivate=()=>{},canToggle=false,onDeactivate=()=>{},oldType=b(ox,oy),newType=Tn.Path()}={}){
-    return new Switch(sx,sy,{
-        onActivate:()=>{
-            b(ox,oy,newType)
-            onActivate()
-        },
-        canDeactivate:canToggle,
-        onDeactivate:()=>{
-            b(ox,oy,oldType)
-            onDeactivate()
         }
-    })
-}
+        if(this.activeItem && this.activeItem.isActive()){
+            dx = 0;
+            dy = 0;
+        }
+        
+        ////////////////////////
+        let col1 = this.getCloseTiles()
+        if(this.portal.id != undefined && !col1.some(t=>t.is(Tnames.Portal))){
+            this.portal.id = undefined;
+        }
+        //Used for stopping slipping
+        let ox = this.x;
+        let oy = this.y;
+        //Does it twice because it is far simpler to do
 
-/**Summons a dart at (dx,dy) going dir */
-function sDart(sx,sy,dx,dy,dir,speed){
-    return new Switch(sx,sy,{activeColor:'peru',inactiveColor:'peru',onActivate:()=>{Dart(dx,dy,dir,speed)},canDeactivate:true})
-}
+        if(this.lockedDir != undefined){
+            dx = this.lockedDir.x;
+            dy = this.lockedDir.y;
+        }
 
-/**
- * Spawns a certain pickup at (px,py) if there isn't already one there
- * @param {Function} construct The function or constructor to run when making the new Pickup
- * @param {any} nId The id to make the pickup so only one may spawn
- */
-function sPickupSpawn(sx,sy,px,py,construct,nId=nextId("pickup")){
-    return new Switch(sx,sy,{canDeactivate:true,onActivate:(p,id=nId)=>{
-        if(!Pickup.getById(id))
-            new construct(px,py,id)
-    }})
-}
+        this.x += dx;
+        this.handleTiles(/*this.getCloseTiles()*/col1, dx, 0);
 
-/**Spawns armor at (px,py) only if the player has less armor than n */
-function sArmorMax(sx,sy,px,py,n,nId=nextId("pickup")){
-    return new Switch(sx,sy,{canDeactivate:true,onActivate:(p)=>{
-        if(p.armor<n&&!Pickup.getById(nId))
-            pArmor(px,py,nId)
-    }})
-}
+        this.y += dy;
+        this.handleTiles(/*col1*/this.getCloseTiles(), 0, dy);
+        
+        /*if(dx !== 0 || dy !== 0){
+            this.lastDirection = GameKit.vec2(dx,dy).toAngle(); 
+        }*/
+        //Gives vertical priority
+        if(dy !== 0){
+            if(dy < 0){
+                this.lastDirection.rad = Cardinals.Up.rad
+            } else {
+                this.lastDirection.rad = Cardinals.Down.rad
+            }
+        } else if(dx !== 0){
+            if(dx < 0){
+                this.lastDirection.rad = Cardinals.Left.rad
+            } else {
+                this.lastDirection.rad = Cardinals.Right.rad
+            }
+        }
+        //Nothing changes if no movement
 
-function sTrapTile(sx,sy,tx,ty,dir,delay,speed){
-    return new Switch(sx,sy,{onActivate:()=>{
-        b(tx,ty,Tn.Trap(dir,delay,speed))
-    }})
-}
+        //this.handleEnts(this.getCloseEnts().filter(e=>e != player && e.constructor.name != 'Tile'))
+        ///////////////////////////
+        //Bind to inside the map
+        this.snapIntoMap()
 
-//#endregion
+        //If you haven't moved after trying to move, then you are no longer sliding
+        if(this.lockedDir != undefined && this.x == ox && this.y == oy) {
+            this.lockedDir = undefined;
+        }
 
-//#region Enemy
-
-/**Mostly used for positions in Enemy Movement. Short for vector */
-function v(x=0,y=0){return {
-    x:x,
-    y:y,
-    [Symbol.toPrimitive](){
-        return "("+this.x+','+this.y+')'
-    },
-    add(other){
-        return v(this.x+other.x,this.y+other.y)
-    },
-    sub(other){
-        return this.add(other.flip())
-    },
-    flip(){
-        return v(-this.x,-this.y)
+        this.setColor()
     }
-}}
+    /**@param {Tile[]} tiles */
+    handleTiles(tiles, dx, dy){
+        var col = tiles.filter(t=>this.collides(t));
+        var hasSlippery = false;
+        for(let i = 0; i<col.length;i++) {
+            if(!col[i].canWalk()){
+                //Collision Checking
+                //Above you
+                if(dy != 0){
+                    //Above
+                    if(col[i].y > this.y){
+                        this.y = col[i].y-Tile.size2-this.height/2 - 1
+                    } else {
+                        this.y = col[i].y+Tile.size2+this.height/2 + 1 
+                    }
+                }
+                if(dx != 0){
+                    //Tile is right
+                    if(col[i].x > this.x){
+                        this.x = col[i].x - Tile.size2 - this.height/2 - 1
+                    } else {
+                        this.x = col[i].x + Tile.size2 + this.height/2 + 1
+                    }
+                }
+            }
+            if(col[i].isSlippery()){
+                hasSlippery = true;
+            }
+            //Done this way to handle the case of dying while against a wall
+            if(col[i].handleStep(dx,dy))
+                break;
+            
+        }
+        if(hasSlippery){
+            if(this.lockedDir != undefined){
+                if(dx === 0){
+                    this.lockedDir.y = dy;
+                } else if(dy === 0) {
+                    this.lockedDir.x = dx;
+                } else {
+
+                    console.log("Added property")
+                }
+            } else {
+                this.lockedDir = pos(dx,dy);
+                console.log("Setting initial")
+            }
+            //console.log(this.lockedDir);
+        } else if(this.lockedDir != undefined){
+            this.lockedDir = undefined;
+            console.log("Reset Slippery")
+        }
+    }
+    setSpeed(val){
+        this.speed = val;
+        this.diagSpeed = val/Math.SQRT2;
+        return this;
+    }
+    resetSpeed(){
+        this.speed = this.defaultSpeed;
+        this.diagSpeed = this.defaultDiagSpeed;
+        return this;
+    }
+    remove(){
+        console.warn("Why remove player?")
+    }
+}
+
+
+
+
+
+class Dart extends TeleportableEnt {
+    /**@param {{tileX:number,tileY:number,properties:{trap:{dir:Angle,dartSpeed:number}}}} parent */
+    constructor(parent){
+        super(0,0,12,12,'green');
+        this.at(parent.tileX,parent.tileY);
+        this.rotation.rad = parent.properties.trap.dir.rad;
+        this.speed = parent.properties.trap.dartSpeed;
+        //this.speed = 2;
+        this.setImage("dart")
+        this.options.drawStyle = Ent.drawStyles.DRAW_ROTATED;
+        this.options.drawBoxUnderImage = false;
+        this.options.hasBorder = false;
+        this.options.imageBorder = false;
+    }
+    move(){
+        this.moveForward(this.speed);
+        if(this.collides(player)){
+            player.kill()
+            this.remove();
+        } else if(this.isOutsideMap() || 
+            this.getCloseEnts().filter(e=>e.constructor.name == "Tile" && e.properties.blocksDarts && this.collides(e)).length > 0)
+        {
+            this.remove();
+        }
+    }
+}
+
+function b(x,y,tile){
+    if(tile != undefined)
+        return activeMap.set(x,y,tile).get(x,y)
+    return (x >= 0 && y >= 0 && x < activeMap.width && y < activeMap.height) ? activeMap.get(x,y) : undefined;
+}
 
 class Path{
+    /**
+     * @param {boolean} doesLoop if it returns to the start after getting to the end, or goes backwards
+     * @param {{x:number,y:number}[]} points
+    */
     constructor(doesLoop,...points){
         this.doesLoop=doesLoop
         this.cur=0
@@ -543,977 +587,10 @@ class Path{
         }
     }
     add(...vects){
-        vects.forEach(vect=>this.points.push(vect))
+        this.points.push(...vects);
     }
     /**Tells if moving foward through the points or backwards */
     static get dirs(){return {fwd:'fwd',bkwd:'bkwd'}}
     /**Tells if to go up/down then left/right or the other way around */
     static get styles(){return {vertHoriz:'vertHoriz',horizVert:'horizVert'}}
-}
-
-class Enemy extends Entity{
-    constructor(path,{moveStyle=Path.styles.vertHoriz,speed=5,width=15,height=15,color='crimson',flipMoveStyle=true}={}){
-        super(path.points[0].x,path.points[0].y,width,height,color)
-        this.path=path
-        this.curGoal=this.path.points[0]
-        
-        this.speed=speed
-        this.isMoving=false
-        if(flipMoveStyle){
-            if(moveStyle===Path.styles.horizVert)
-                this.moveStyle=Path.styles.vertHoriz
-            else if(moveStyle===Path.styles.vertHoriz)
-                this.moveStyle=Path.styles.horizVert
-        }else
-            this.moveStyle=moveStyle
-        this.flipMoveStyle=flipMoveStyle
-        this.dx=0
-        this.dy=0
-        entities.push(this)
-    }
-    setPosition(x,y){
-        this.x=(x*Tn.SIZE+Tn.SIZE/2-this.width/2)
-        this.y=(y*Tn.SIZE+Tn.SIZE/2-this.height/2)
-    }
-    move(){
-        this.glideTo(this.curGoal.x,this.curGoal.y)
-        if(!this.isMoving){
-            if((this.path.cur===this.path.points.length-1||this.path.cur===0)&&this.flipMoveStyle){
-                if(this.moveStyle===Path.styles.horizVert)
-                    this.moveStyle=Path.styles.vertHoriz
-                else if(this.moveStyle===Path.styles.vertHoriz)
-                    this.moveStyle=Path.styles.horizVert
-            }
-            this.curGoal=this.path.next()
-        }
-    }
-    withStyle(style){
-        this.moveStyle=style
-        return this
-    }
-    glideTo(x,y){
-        var urp=unroundPoint(x,y,this)
-        var t=this
-        function m2(xy){
-            t.isMoving=true
-            if(t[xy]<urp[xy]){
-                t[xy]+=t.speed
-                if(t[xy]>urp[xy])
-                    t[xy]=urp[xy]
-            }else{
-                t[xy]-=t.speed
-                if(t[xy]<urp[xy])
-                    t[xy]=urp[xy]
-            }            
-        }
-        if(this.moveStyle===Path.styles.horizVert){
-            if(this.x!==urp.x)
-                m2('x')
-            else if(this.y!==urp.y)
-                m2('y')
-            else
-                this.isMoving=false
-        }else if(this.moveStyle===Path.styles.vertHoriz){
-            if(this.y!==urp.y)
-                m2('y')
-            else if(this.x!==urp.x)
-                m2('x')
-            else
-                this.isMoving=false
-        }
-    }
-    isPlayerCollide(){
-        return _players.some(p=>isCollide(p,this))
-    }
-    getCollidingPlayer(){
-        return _players.find(p=>isCollide(p,this))
-    }
-    withColor(color){
-        this.color=color
-        return this
-    }
-    static checkAllCollide(){
-        entities.forEach(enemy=>{
-            if(enemy.constructor.name==='Enemy'&&enemy.isPlayerCollide())
-                enemy.getCollidingPlayer().kill('enemy')
-        })
-    }
-}
-
-function pClone(x,y,id,nx,ny){
-    return new Pickup(x,y,{id:id,color:'steelblue',onGrab:(p)=>{
-        var p=new Player(_players.length)
-        p.setPosition(nx,ny)
-        p.respawnPoint=v(nx,ny)
-    },onRemove:()=>{
-        _players.length=1
-    }})
-}
-
-//#endregion
-
-
-class Player extends Entity{
-    constructor(id=0,addToArr=true){
-        super(0,0,16,16,'steelblue',{id:id})
-        if(addToArr)
-            _players.push(this)
-        this.dir=Dir.Up
-        this.hidden=false
-        this.keys=0
-        this.lastDeathSource='none'
-        this.speed=5
-        this.defaultSpeed=5
-        this.armor=0
-        this.respawnPoint=undefined
-        this.isUsingHook=false
-        /**@type {ActiveItem} */
-        this.activeItem=null;
-        /**Tracks the portal info for teleporting */
-        this.portal={
-            hasTele:false,
-            id:-2,
-            type:''
-        }
-        /**Tracks time for player being red from hurting */
-        this.hurt={
-            isHurt:false,
-            counter:new Counter(5,()=>{
-                this.hurt.isHurt=false
-            })
-        }
-        this.colors={
-            /**Standard color of the player */
-            default:(this.id===0)?'steelblue':(this.id===1)?'green':(this.id===2)?'red':'purple',
-            /**If the player is hurt */
-            hurt:'red',
-            /**When the player has armor */
-            armor:'grey',
-            /**When the player is invincible */
-            inv:'goldenrod'
-        }
-        this.canMove={
-            up:false,down:false,left:false,right:false,locked:false
-        }
-    }
-    static moveEverythingElse(){
-        if(Menu.isGame())
-            updateInfo()
-        Pickup.checkAllCollide()
-
-        //Moves all the entities towards their next point
-        for(let i=0;i<entities.length;i++){
-            entities[i].move()
-            if(entities[i].toRemove){
-                entities.splice(i--,1)
-            }
-        }
-
-        for(let i=0;i<_players.length;i++){
-            if(_players[i].toRemove){
-                _players.splice(i--,1)
-            }
-        }
-
-        Enemy.checkAllCollide()
-
-        addAndMoveDarts()
-    }
-    setCanMove(bool){
-        this.canMove.locked=(bool===true)?false:'noMove'
-    }
-    move(){
-
-        if(this.activeItem)
-            this.activeItem.move()
-
-        var dx=0,dy=0;
-        //This is the actual movement calculation
-        if(game.canMove&&(!this.activeItem||!this.activeItem.active||this.activeItem.canUseWhileMoving)){
-            if(this.canMove.up) dy-=1;
-            if(this.canMove.down) dy+=1;
-            if(this.canMove.left) dx-=1;
-            if(this.canMove.right) dx+=1;
-        }
-        //Ice movement locking
-        switch(this.canMove.locked){
-            case false:break;
-            case Dir.Up:dy=-1;dx=0;break;
-            case Dir.Down: dy=1;dx=0;break;
-            case Dir.Right: dy=0;dx=1;break;
-            case Dir.Left: dy=0;dx=-1;break;
-            case "noMove":return;
-        }
-
-        ///These are all counters for every tick
-        //Counts when the player is hurt to tell when to be red
-        if(this.hurt.isHurt)
-            this.hurt.counter.count()
-
-        //Only moving a single direction and you're not blocking
-        if(dx!==0||dy!==0){
-            if(dx!==0){
-                switch(dx){
-                    case 1:this.dir=Dir.Right;break;
-                    case -1:this.dir=Dir.Left;break;
-                }
-                this.x+=dx*this.speed;
-            }if(dy!==0){
-                switch(dy){
-                    case 1:this.dir=Dir.Down;break;
-                    case -1:this.dir=Dir.Up;break;
-                }
-                this.y+=dy*this.speed;
-            }
-        }
-        //Determines if the player can move, and if so then does
-        if(!this.checkCollisions()){
-            this.x-=dx*this.speed;
-            this.y-=dy*this.speed;
-        }
-        //Runs some checks for stuff
-        this.checkOnPortal();
-        
-        //Pick the color only if you can see the player
-        if(!this.hidden)
-            this.setColor()
-
-        
-        
-        if(debug.infKeys)
-            this.keys=5;
-    }
-    setPosition(x,y){
-        if(x<0||x>=board[0].length||y<0||y>=board.length)
-            return false
-        if(x>=0&&x<board[0].length)
-            this.x=x*Tn.SIZE+(1/2)*Tn.SIZE-(this.width/2);
-        if(y>=0&&y<board.length)
-            this.y=y*Tn.SIZE+(1/2)*Tn.SIZE-(this.height/2);
-    }
-
-    resetPosition(){
-        if(this.respawnPoint!==undefined){
-            this.setPosition(this.respawnPoint.x,this.respawnPoint.y)
-            return
-        }
-        for(var i=0;i<board.length;i++)
-            for(var j=0;j<board[i].length;j++)
-                if(b(j,i).is(Tn.start)){
-                    this.setPosition(j,i);
-                    return true; 
-                }
-    }
-    /**
-    * Checks all corners of the player for movement
-    * @returns true if the movement was successful and false if it was not
-    */
-    checkCollisions(){
-        var pPoints=this.getCorners();
-        this.onLava=false
-        var onIce=false
-        //Ice check
-        if(this.canMove.locked!==false){
-            for(var i=0;i<pPoints.length;i++){
-                var y=pPoints[i].y,x=pPoints[i].x;
-                if(b(x,y)!==undefined&&b(x,y).is(Tn.ice)){
-                    onIce=true
-                }
-            }
-        }
-        if(!onIce){
-            this.canMove.locked=false
-        }
-        for(var i=0;i<pPoints.length;i++){
-            var y=pPoints[i].y,x=pPoints[i].x;
-            if(!this.checkTile(x,y)){
-                this.canMove.locked=false
-                return false
-            }
-        }
-        return true
-    }
-    checkOnPortal(){
-        var p=this.getCorners();
-        for(let i=0;i<p.length;i++){
-            var x=p[i].x,y=p[i].y;
-            if(b(x,y).is(Tn.portal))
-                return;
-        }
-        this.portal.hasTele=false;
-    }
-    /**Sets the player's color based on certain situations */
-    setColor(){
-        //Follows priority of inv, hurt, armor, gay, then normal
-        if(debug.inv){
-            if(this.color!==this.colors.inv)
-                this.color=this.colors.inv
-        }else if(this.hurt.isHurt){
-            if(this.color!==this.colors.hurt)
-                this.color=this.colors.hurt
-        }else if(this.armor>0){
-            if(this.color!==this.colors.armor)
-                this.color=this.colors.armor
-        }else if(this.gay){
-            var ctx=HTML.canvas.getContext('2d')
-            var grad=ctx.createLinearGradient(player.x,player.y,player.x+player.width,player.y)
-            var col=['red','orange','yellow','green','blue','violet']
-            var inc=1/(col.length-1)
-            for(let i=0;i<=1;i+=inc){
-                i=Math.round(i*10)/10
-                grad.addColorStop(i,col[i*5])
-            }
-            this.color=grad
-        }else{
-            if(this.color!==this.colors.default)
-                this.color=this.colors.default
-        }
-    }
-    /**This is when the player dies, obviously*/
-    kill(source){
-        this.hurt.isHurt=true
-        //Not invincible and don't have armor
-        if(!debug.inv&&this.armor<=0){
-            //Different by difficulty
-            switch(game.difficulty.cur){
-                case Difficulty.Easy:
-                    this.resetPosition()
-                    game.curFloorDeaths++
-                    break;
-                case Difficulty.Normal:
-                    loadFloor(curFloor)
-                    game.curFloorDeaths++
-                    break;
-                case Difficulty.Hard:
-                    loadFloor((goldSpawnFloor)?goldSpawnFloor:0)
-                    break;
-            }
-            game.deaths++;
-            this.lastDeathSource=source
-            if(this.activeItem)
-                this.activeItem.active=false
-        }if(this.armor>0&&!debug.inv){
-            if(source===Tn.lava){
-                this.armor=0
-                this.kill(source)
-            }else
-                this.armor--
-        }
-    }
-    checkTile(x,y){
-        //First make sure it's in bounds so no errors are thrown
-        if(x<0||y<0||x>board[0].length-1||y>board.length-1)
-            return false;
-        //These are the tiles that you can walk on with nothing happening
-        var cur=b(x,y)
-        if(cur.is(Tn.path,Tn.start,Tn.noRock))
-            return true;
-        else if(cur.is(Tn.end)){
-            if(!onEndOnce){
-                var wasInv=debug.inv
-                if(!wasInv)
-                    debug.inv=true
-                onEndOnce=true
-                spawnPoint=false
-                //Delay before going to next floor
-                setTimeout(()=>{
-                    onEndOnce=false;
-                    nextFloor()
-                    if(!wasInv)
-                        debug.inv=false
-                },500)
-            }
-            return true
-        }else if(cur.is(Tn.wall,Tn.trap))
-            return false
-        //Keys and locks
-        else if(cur.is(Tn.lock)){
-            if(this.keys>0){
-                this.keys--;
-                b(x,y,b(x,y).tileUnder)
-                
-                checkLocksOnFloor7()
-            }
-            //Returns false so the player has a small pause when unlocking a lock
-            return false
-        //Lava
-        }else if(cur.is(Tn.lava)){
-            //If you're not on lava already and not using the hook or the hook has no end
-            if(!this.onLava&&(!this.isUsingHook||(this.activeItem&&!this.activeItem.end))){
-                this.kill(Tn.lava)
-                if(debug.inv)
-                    return true
-                return (this.onLava=true);
-            }else if(this.isUsingHook) return true
-        //Rocks
-        }else if(cur.is(Tn.rock)){
-            var xCheck=x,yCheck=y;
-            switch(this.dir){
-                case Dir.Up:yCheck--;break;
-                case Dir.Down:yCheck++;break;
-                case Dir.Left:xCheck--;break;
-                case Dir.Right:xCheck++;break;
-            }
-            if(checkRockTile(xCheck,yCheck)){
-                var next=b(xCheck,yCheck)
-                if(next.is(Tn.lava)){
-                    b(xCheck,yCheck,b(x,y).tileUnder)
-                    b(x,y,b(x,y).tileUnder)
-                }else if(next.is(Tn.rockSwitch)){
-                    next.onActivate()
-                    b(xCheck,yCheck,next.tileUnder)
-                    b(x,y,cur.tileUnder)
-                }else{
-                    var t=cur.tileUnder
-                    var t2=b(xCheck,yCheck)
-                    b(xCheck,yCheck,Tn.Rock(b(xCheck,yCheck),b(x,y).hasImage))
-                    b(x,y,t)
-                    b(xCheck,yCheck).tileUnder=t2
-                }
-                return false;
-            }
-        //Portals
-        }else if(cur.is(Tn.portal)){
-            if(!this.portal.hasTele||cur.id!==this.portal.id||cur.type!==this.portal.type){
-                if(cur.type==='C'){
-                    this.portal.type='C'
-                    this.portal.id=-1;
-                    this.setPosition(cur.x,cur.y)
-                }
-                this.portal.id=cur.id
-
-                this.portal.hasTele=true;
-                var point=getOtherPortal(cur)
-                if(point){
-                    this.portal.type=b(point[0],point[1]).type
-                    this.setPosition(point[0],point[1])
-                    return false
-                }
-                return true
-            }
-            return true;
-        }else if(cur.is(Tn.ice)){
-            this.canMove.locked=this.dir
-            return true
-        }
-    }
-    static removeKeys(){
-        _players.forEach(p=>p.keys=0)
-    }
-    setActiveItem(i){
-        if(this.activeItem&&this.activeItem.active){
-            this.activeItem.active=false;
-            this.activeItem.onStopUse(this.activeItem)
-            this.activeItem=i
-        }else{
-            this.activeItem=i
-        }
-    }
-}
-
-
-class ActiveItem{
-    constructor(parent,width,height,color,shift=11,useTime,delayTime,canUseWhileMoving=false,infiniteActiveTime=false){
-        this.ent=new Entity(parent.x,parent.y,width,height,color)
-        this.logic={
-             /**Counts the duration of the blocking */
-            activeCounter:new Counter(useTime,()=>{
-                if(!this.canToggle)
-                    this.active=false
-                else
-                    this.toggleCanStop=true
-            }),
-            /**Counts how long the delay lasts */
-            delayCounter:new Counter(delayTime,()=>{
-                this.logic.canUse=true
-            }),
-            /**Direction of the active item */
-            dir:Dir.Up,
-            /**This is if you can block, usually after the delay*/
-            canUse:true,
-        }
-        /**@type {Player} */
-        this.parent=parent
-
-        this.initW=width;
-        this.initH=height
-        /**This is the space between where the item is and the player */
-        this.shift=shift
-        this.canUseWhileMoving=canUseWhileMoving
-        this.infiniteActiveTime=infiniteActiveTime
-
-        this.active=false 
-
-        this.canPivot=false
-        this.formerParentSpeed=this.parent.speed;
-        this.canToggle=false;
-        this.toggleLetGo=false
-        this.toggleCanStop=false
-    }
-    use(){
-        //This part is setting the width and height based on direction
-        if(!this.active&&(!this.canToggle||this.logic.canUse)){
-            this.centerOnParent()
-            this.onFirstUse(this)
-            this.active=true
-            this.logic.canUse=false
-            if(this.canPivot){
-                this.formerParentSpeed=this.parent.speed;
-                this.parent.speed=0
-            }
-            this.toggleLetGo=false
-            this.toggleCanStop=false
-        }else if(this.canToggle&&this.toggleCanStop){
-            this.active=false
-        }
-    }
-    /**@param {ActiveItem} t */
-    onFirstUse(t){}
-    /**@param {ActiveItem} t */
-    onStopUse(t){}
-    centerOnParent(){
-        switch(this.parent.dir){
-            case Dir.Up:
-            case Dir.Down:
-                this.ent.width=this.initH;
-                this.ent.height=this.initW;
-                break;
-            case Dir.Left:
-            case Dir.Right:
-                this.ent.width=this.initW;
-                this.ent.height=this.initH
-        }
-        this.ent.x=this.parent.x+this.parent.width/2-this.ent.width/2
-        this.ent.y=this.parent.y+this.parent.height/2-this.ent.height/2
-        switch(this.parent.dir){
-            case Dir.Up:
-                this.ent.y-=this.shift
-                break;
-            case Dir.Down:
-                this.ent.y+=this.shift
-                break;
-            case Dir.Left:
-                this.ent.x-=this.shift
-                break;
-            case Dir.Right:
-                this.ent.x+=this.shift
-                break;
-        }
-    }
-    draw(){
-        if(this.active){
-            this.ent.draw(this.ent,this)
-        }
-    }
-    toCircle(){
-        this.ent.isCircle=true;
-        return this
-    }
-    move(){            
-        
-        if(this.active){
-            
-            this.ent.move(this)
-            
-            if(!this.infiniteActiveTime||this.canToggle)
-                this.logic.activeCounter.count()
-
-            if(this.canPivot||this.canUseWhileMoving)
-                this.centerOnParent()
-
-            this.whileActive(this)
-        }
-        //You're not blocking but you still can't block, i.e. cooldown
-        else if(!this.logic.canUse){
-            if(this.logic.delayCounter.cur===0){
-                this.onStopUse(this)
-                if(this.canPivot){
-                    this.parent.speed=this.formerParentSpeed
-                }
-            }
-            this.logic.delayCounter.count()
-        }
-        return this
-    }
-    /**@param {function(ActiveItem)} func */
-    setMoveFunc(func){
-        this.ent.move=func
-        return this
-    }
-    /**@param {function(Entity,ActiveItem)} func Overwrites the drawing function of the entity */
-    setDrawFunc(func){
-        this.ent.draw=func
-        return this
-    }
-    /**@param {function(ActiveItem)} func */
-    setOnFirstUse(func){
-        this.onFirstUse=func
-        return this
-    }
-    whileActive(){}
-    /**@param {function(ActiveItem)} func */
-    setActiveEffects(func){
-        this.whileActive=func
-        return this
-    }
-    /**@param {function(ActiveItem)} func */
-    setOnStopUse(func){
-        this.onStopUse=func
-        return this
-    }
-    setPivot(bool=true){
-        this.canPivot=bool
-        if(bool&&!this.canUseWhileMoving)
-            this.canUseWhileMoving=true
-        return this
-    }
-    setToggle(){
-        this.canToggle=true
-        this.infiniteActiveTime=true
-        //this.logic.activeCounter.max=1
-        return this
-    }
-}
-
-function aTowerShield(parent){
-    var speedDec=2
-    parent.setActiveItem(new ActiveItem(parent,9,27,'silver',14,1,20,true,true)
-        .setOnFirstUse(t=>{
-            t.moveDir=t.parent.dir
-            t.parent.speed-=speedDec
-        })
-        .setActiveEffects(t=>{
-            function lockDir(dir){
-                if(t.moveDir!==dir)
-                    t.parent.canMove[dir]=false
-            }
-            lockDir(Dir.Up)
-            lockDir(Dir.Down)
-            lockDir(Dir.Right)
-            lockDir(Dir.Left)
-            parent.dir=t.moveDir
-
-            darts.forEach(d=>{
-                if(isCollide(t.ent,d)){
-                    d.toRemove=true
-                }
-            })
-        })
-        .setOnStopUse(t=>t.parent.speed+=speedDec)
-    )
-}
-
-function aShield(parent){
-    parent.setActiveItem(new ActiveItem(parent,7,25,'saddlebrown',13,1,1,true,true).toCircle()
-        .setActiveEffects(t=>{
-            darts.forEach(d=>{
-                if(isCollide(t.ent,d))
-                    d.toRemove=true
-            })
-        })
-        .setPivot()
-    )
-}
-function aBouncyShield(parent){
-    parent.setActiveItem(new ActiveItem(parent,8,27,'red',13,9,1,false,true).toCircle()
-        .setActiveEffects(t=>{
-            darts.forEach(d=>{
-                if(isCollide(t.ent,d)){
-                    d.dir=flipDir(d.dir)
-                }
-            })
-        })
-        .setDrawFunc(t=>{
-            ctx.fillStyle=t.color
-            ctx.beginPath()
-            ctx.ellipse((t.x+t.width/2),(t.y+t.height/2),(t.width/2),(t.height/2),0,0,Math.PI*2)
-            shadow(2)
-            ctx.fill()
-            shadow()
-            ctx.stroke()
-            ctx.closePath()
-
-            ctx.fillStyle='silver'
-            ctx.beginPath()
-            ctx.ellipse((t.x+t.width/2),(t.y+t.height/2),(t.width/3),(t.height/3),0,0,Math.PI*2)
-            ctx.fill()
-            ctx.stroke()
-            ctx.closePath()
-        })
-        .setPivot()
-        //.setToggle()
-    )
-}
-function aKeyMagnet(parent){
-    parent.setActiveItem(new ActiveItem(parent,10,8,'red',undefined,1,1,false,true)
-        .setActiveEffects(t=>{
-            var rateOfMove=5;
-            var col={x:0,y:0,width:0,height:0};
-            function box(x,y,w,h){return {x:x,y:y,width:w,height:h}}
-            switch(parent.dir){
-                case Dir.Up:
-                    col=box(t.ent.x,0,t.ent.width,t.ent.y)
-                    break;
-                case Dir.Down:
-                    col=box(t.ent.x,t.ent.y,t.ent.width,board.length*Tn.SIZE-t.ent.y)
-                    break;
-                case Dir.Left:
-                    col=box(0,t.ent.y,t.ent.x,t.ent.height)
-                    break;
-                case Dir.Right:
-                    col=box(t.ent.x,t.ent.y,board[0].length*Tn.SIZE-t.ent.x,t.ent.height)
-                    break;
-            }
-            //console.log(col)
-            //drawAfterConst.push(()=>g.rect(col.x,col.y,col.width,col.height,'purple'))
-            pickups.forEach(p=>{
-                if(p.type==='key'){
-                    if(isCollide(col,p)){
-                        switch(parent.dir){
-                            case Dir.Up:p.y+=rateOfMove;break;
-                            case Dir.Down:p.y-=rateOfMove;break;
-                            case Dir.Right:p.x-=rateOfMove;break;
-                            case Dir.Left:p.x+=rateOfMove;break;
-                        }
-                    }
-                }
-            })
-            
-            //  drawAfterConst.push(()=>g.rect(col.x,col.y,col.width,col.height,'purple'))
-        })
-        .setDrawFunc((e,t)=>{
-            var r1,r1,c1,c2,pDir=t.parent.dir
-            switch(pDir){
-                case Dir.Up:case Dir.Down:
-                    r1={x:e.x,y:e.y,w:e.width,h:e.height/2}
-                    r2={x:e.x,y:e.y+e.height/2,w:e.width,h:e.height/2};break;
-                default:
-                    r1={x:e.x,y:e.y,w:e.width/2,h:e.height}
-                    r2={x:e.x+e.width/2,y:e.y,w:e.width/2,h:e.height};break;
-            }
-            switch(pDir){
-                case Dir.Up:case Dir.Left:c1='red';c2='white';break;
-                default:c1='white';c2='red';break;
-            }
-            ctx.fillStyle=c1
-            shadow(2)
-            ctx.fillRect(r1.x,r1.y,r1.w,r1.h)
-            ctx.fillStyle=c2
-            ctx.fillRect(r2.x,r2.y,r2.w,r2.h)
-            shadow()
-            ctx.strokeRect(e.x,e.y,e.width,e.height)
-        })
-    )
-}
-
-function pKeyMagnet(x,y){
-    return pActiveItem(x,y,8,10,'red','keyMagnet',aKeyMagnet)
-        .setDrawFunc(t=>{
-            ctx.fillStyle='red'
-            ctx.fillRect(t.x,t.y,t.width,(t.height/2))
-            ctx.fillStyle='white'
-            ctx.fillRect(t.x,(t.y+t.height/2),t.width,t.height/2)
-            shadow()
-            ctx.strokeRect(t.x,t.y,t.width,t.height)
-        })
-}
-
-function aHook(parent){
-    parent.setActiveItem(new ActiveItem(parent,10,10,'blue',11,1,2,false,true)
-        .setOnFirstUse(t=>{
-            t.parts=[]
-            t.end=false
-            t.parent.isUsingHook=true
-
-            t.freq=5
-
-            var tileSelected=v(t.ent.x+t.ent.width/2,t.ent.y+t.ent.height/2)
-            
-            function moveOneTile(){
-                caseDir(t.parent.dir,
-                    ()=>tileSelected.y-=Tn.SIZE/t.freq,
-                    ()=>tileSelected.y+=Tn.SIZE/t.freq,
-                    ()=>tileSelected.x-=Tn.SIZE/t.freq,
-                    ()=>tileSelected.x+=Tn.SIZE/t.freq
-                )
-            }
-            var keepGoing=true
-            while(keepGoing){
-                moveOneTile()
-                var rp=roundPoint(tileSelected.x,tileSelected.y)
-                if(b(rp.x,rp.y)){
-                    //If there's a tile there
-                    if(b(rp.x,rp.y).is(Tn.path,Tn.lava,Tn.start,Tn.end,Tn.ice,Tn.noRock,Tn.portal)){
-                        t.parts.push(v(tileSelected.x,tileSelected.y))
-                    }else if(b(rp.x,rp.y).is(Tn.target)){
-                        t.end=tileSelected
-                        keepGoing=false
-                    }else{
-                        keepGoing=false
-                    }
-
-                }else{
-                    keepGoing=false
-                }
-            }
-            
-        })
-        .setDrawFunc((e,t)=>{
-            g.rect(e.x,e.y,e.width,e.height,e.color)
-            t.parts.forEach(p=>{
-                g.ring(p.x-e.width/2,p.y-e.height/2,e.width,e.height,3,'silver')
-            })
-            if(t.end){
-                g.rect(t.end.x-e.width/2,t.end.y-e.height/2,e.width,e.height,'gray')
-            }
-        })
-        .setMoveFunc(t=>{
-            var rate=5
-            if(t.end&&t.parts.length>0){
-                t.centerOnParent()
-                caseDir(t.parent.dir,
-                    ()=>{
-                        t.parent.y-=rate
-                        if(!t.parent.checkCollisions())
-                            t.parent.y+=rate
-                    },
-                    ()=>{
-                        t.parent.y+=rate
-                        if(!t.parent.checkCollisions())
-                            t.parent.y-=rate
-                    },
-                    ()=>{t.parent.x-=rate},
-                    ()=>{t.parent.x+=rate}
-                )
-            }
-            //Reset the rings and where they're at
-            t.onFirstUse(t)
-        })
-        .setOnStopUse(t=>t.parent.isUsingHook=false)
-    )
-}
-
-function aClone(parent){
-    var c;
-    parent.setActiveItem(new ActiveItem(parent,5,5,'blue',0,1,50,false,true)
-        .setOnFirstUse(t=>{
-            t.ent.hasShadow=false
-            c=new Player(2)
-            
-            c.width-=5;
-            c.height-=5;
-
-            c.x=t.parent.x+c.width/4
-            c.y=t.parent.y+c.height/4
-        })
-        .setOnStopUse(t=>{
-            c.toRemove=true
-            t.parent.keys+=c.keys
-        })
-    )
-}
-
-function aShrink(parent){
-    var change=parent.width/2
-    parent.setActiveItem(new ActiveItem(parent,parent.width,parent.height,parent.color,0,30,30,true,false)
-        .setOnFirstUse(t=>{
-            t.parent.width-=change
-            t.parent.height-=change
-            t.parent.x+=change/2
-            t.parent.y+=change/2
-
-            t.parent.speed-=2
-        })
-        .setOnStopUse(t=>{
-            t.parent.width+=change
-            t.parent.height+=change
-            t.parent.x-=change/2
-            t.parent.y-=change/2
-
-            t.parent.speed+=2
-
-            var corners=t.parent.getCorners()
-
-            var pTypes={
-                /**@type {v[]} */
-                safe:[],
-                /**@type {v[]} */
-                unsafe:[]
-            }
-            corners.forEach(c=>{
-                if(t.parent.checkTile(c.x,c.y))
-                    pTypes.safe.push(c)
-                else
-                    pTypes.unsafe.push(c)
-            })
-
-            //No conflict
-            if(pTypes.safe.length===corners.length)
-                return;
-
-            //On two tiles, one safe, one not 
-            else if(pTypes.safe.length===1&&pTypes.unsafe.length===1){
-                var nv = pTypes.safe[0].sub(pTypes.unsafe[0])
-                t.parent.x+=nv.x*t.parent.speed;
-                t.parent.y+=nv.y*t.parent.speed;
-                return;
-            }
-            //On four tiles, two safe, two not
-            else if(pTypes.safe.length===2&&pTypes.unsafe.length===2){
-                let sV=pTypes.safe[0].sub(pTypes.safe[1])
-                if(sV.x===0)
-                    t.parent.x+=(pTypes.safe[0].x-pTypes.unsafe[0].x)*t.parent.speed
-                else
-                    t.parent.y+=(pTypes.safe[0].y-pTypes.unsafe[0].y)*t.parent.speed
-            }
-            //On four, one corner in wall
-            else if(pTypes.safe.length===3&&pTypes.unsafe.length===1){
-                var vDir=pTypes.safe.find(vs=>{
-                    var vec=vs.sub(pTypes.unsafe[0])
-                    return vec.x!==0&&vec.y!==0
-                })
-                var moveVec=vDir.sub(pTypes.unsafe[0])
-                t.parent.x+=(moveVec.x)*t.parent.speed
-                t.parent.y+=(moveVec.y)*t.parent.speed
-            }
-            //Only one good and three bad
-            else if(pTypes.unsafe.length===3&&pTypes.safe.length===1){
-                var vDir=pTypes.unsafe.find(vs=>{                    
-                    var vec=vs.sub(pTypes.safe[0])
-                    return !(vec.x===0||vec.y===0)
-                })
-                var moveVec=vDir.sub(pTypes.safe[0]).flip()
-                t.parent.x+=(moveVec.x)*t.parent.speed
-                t.parent.y+=(moveVec.y)*t.parent.speed
-            }
-        })
-        .setDrawFunc(()=>{})
-        .setToggle()
-    )
-}
-
-//setTimeout(()=>aShrink(player),90)
-//setInterval(()=>{if(!player.activeItem)aShrink(player)},100)
-function caseDir(dir,up,down,left,right){
-    switch(dir){
-        case Dir.Up:up();break;
-        case Dir.Down:down();break;
-        case Dir.Left:left();break;
-        case Dir.Right:right();break;
-    }
-}
-
-function pShield(x,y,id){
-    return new Pickup(x,y,
-        {width:25,height:8,color:'saddleBrown',type:'shield',onGrab:(p)=>{aShield(p)},isCircle:true,id:id})
-}
-
-function pActiveItem(x,y,width=7,height=7,color='magenta',type='??',activeFunc=aShield,{id,img,onRemove,isCircle}={}){
-    return new Pickup(x,y,
-        {width:width,height:height,color:color,type:type,
-            onGrab:(p)=>{activeFunc(p)},onRemove,isCircle:isCircle,id:id,img:img,id:id})
-}
-
-function pHook(x,y,id){
-    return pActiveItem(x,y,10,10,'blue','hook',aHook,{id:id,isCircle:false})
 }

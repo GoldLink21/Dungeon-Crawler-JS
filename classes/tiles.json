@@ -1,0 +1,94 @@
+{
+    "path": {
+        "color": "pathColor"
+    },
+    "grass": {
+        "color": "grassColor"
+    },
+    "wall": {
+        "color": "rgb(78,78,78)",
+        "walkable": false,
+        "blocksDarts": true
+    },
+    "bars": {
+        "color": "pathColor",
+        "walkable": false,
+        "blocksDarts": true,
+        "images": ["bars"]
+    },
+    "trap": {
+        "color": "peru",
+        "walkable": false,
+        "blocksDarts": false,
+        "trap": {
+            "dir": "Cardinals.Up",
+            "dartSpeed": 34,
+            "delay": 30
+        },
+        "images": ["trap"],
+        "drawUnderImage": true
+    },
+    "noRock": {
+        "color": "rgb(135,135,135)"
+    },
+    "rock": {
+        "color": "brown",
+        "images": ["rock", "rock1"],
+        "pushable": true,
+        "pushableWhiteList": ["Tnames.Path", "Tnames.Ice", "Tnames.Grass"],
+        "tileUnder": "Tnames.Path",
+        "walkable": false,
+        "blocksDarts": true,
+        "hasStepTrigger": true
+    },
+    "hidden": {
+        "color": "rgb(65,65,65)"
+    },
+    "target": {
+        "color": "rgb(191,54,12)",
+        "grappleable": true,
+        "images": ["target"],
+        "walkable": false
+    },
+    "lava": {
+        "color": "maroon",
+        "hasStepTrigger": true
+    },
+    "fakeLava": {
+        "color": "#600000"
+    },
+    "ice": {
+        "color": "rgb(0,135,253)",
+        "slippery": true
+    },
+    "start": {
+        "color": "white"
+    },
+    "end": {
+        "color": "gold",
+        "hasStepTrigger": true,
+        "images": ["end"]
+    },
+    "portal": {
+        "color": "pathColor",
+        "images": ["portalA"],
+        "portal": {},
+        "hasStepTrigger": true
+    },
+    "lock": {
+        "color": "pathColor",
+        "images": ["lock"],
+        "hasStepTrigger": true,
+        "tileUnder": "Tnames.Path",
+        "walkable": false,
+        "blocksDarts": true
+    },
+    "breakable": {
+        "color": "rgb(78,78,78)",
+        "walkable": false,
+        "hasStepTrigger": true,
+        "tileUnder": "Tnames.Path",
+        "hp": 24,
+        "hpColors": ["rgb(138,138,138)", "rgb(130,130,130)", "rgb(122,122,122)", "rgb(114,114,114)", "rgb(106,106,106)", "rgb(98,98,98)", "rgb(90,90,90)", "rgb(82,82,82)", "rgb(78,78,78)", "rgb(78,78,78)", "rgb(78,78,78)", "rgb(78,78,78)"]
+    }
+}
